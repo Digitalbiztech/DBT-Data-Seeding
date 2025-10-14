@@ -126,7 +126,8 @@ export default class ExternalOrgQuery extends LightningElement {
     handleClearExclusions = () => { this.excludedObjects = []; this.dependencyTree = undefined; };
     
     handleNodeSelection = (event) => {
-        const nodeId = event.target.dataset.nodeId;
+        const { nodeObject, nodeField, nodeDepth } = event.target.dataset;
+        const nodeId = this.generateNodeId(nodeObject, nodeField, nodeDepth);
         const isSelected = event.target.checked;
         
         if (isSelected) {
@@ -211,7 +212,8 @@ export default class ExternalOrgQuery extends LightningElement {
     };
     
     handleFieldTypeChange = (event) => {
-        const nodeId = event.target.dataset.nodeId;
+        const { nodeObject, nodeField, nodeDepth } = event.target.dataset;
+        const nodeId = this.generateNodeId(nodeObject, nodeField, nodeDepth);
         const fieldType = event.detail.value;
         this.nodeFieldTypes.set(nodeId, fieldType);
         
