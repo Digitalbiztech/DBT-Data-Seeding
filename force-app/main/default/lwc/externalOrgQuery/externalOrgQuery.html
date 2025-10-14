@@ -112,6 +112,33 @@
                 <h3 class="slds-text-heading_small slds-m-bottom_medium">
                     Parent Object Dependencies for <strong>{dependencyTree.objectName}</strong>
                 </h3>
+                <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small">
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
+                        <lightning-input
+                            type="number"
+                            label="Record Limit"
+                            value={recordLimit}
+                            min="1"
+                            onchange={handleRecordLimitChange}
+                        ></lightning-input>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3 slds-p-top_large">
+                        <lightning-button
+                            variant="brand-outline"
+                            label="Export Plan"
+                            onclick={handleExportPlan}
+                        ></lightning-button>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
+                        <lightning-textarea
+                            label="Tie-break Preferences"
+                            value={tiebreakInput}
+                            onchange={handleTiebreakChange}
+                            placeholder="Example: User, Group\nEmployee, Project\nProject_Employee__c\nTimesheet__c\nTimesheet_Line_Item__c">
+                        </lightning-textarea>
+                    </div>
+                    
+                </div>
                 <template if:true={hasDependencies}>
                     <div class="dependency-tree-container">
                         <template for:each={dependencyTree.parents} for:item="node">

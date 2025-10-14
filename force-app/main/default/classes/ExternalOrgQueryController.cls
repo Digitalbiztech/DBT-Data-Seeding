@@ -23,14 +23,21 @@ public with sharing class ExternalOrgQueryController {
         @AuraEnabled public String sessionId;
     }
 
+    // Cache for describe results within a single transaction to reduce callouts
+    private static Map<String, Map<String, Object>> describeCache = new Map<String, Map<String, Object>>();
+
     public class DependencyNode {
         @AuraEnabled public String objectName;
         @AuraEnabled public String fieldName;
         @AuraEnabled public String relationshipType; // 'Lookup' or 'MasterDetail'
         @AuraEnabled public List<DependencyNode> parents;
+        @AuraEnabled public List<DependencyNode> children;
+        @AuraEnabled public Boolean isRequired;
         
         public DependencyNode() {
             this.parents = new List<DependencyNode>();
+            this.children = new List<DependencyNode>();
+            this.isRequired = false;
         }
         
         public DependencyNode(String objectName, String fieldName) {
@@ -240,22 +247,13 @@ public with sharing class ExternalOrgQueryController {
         rootNode.fieldName = '';
 
         try {
-            HttpRequest request = new HttpRequest();
-            request.setMethod('GET');
-            request.setEndpoint(instanceUrl + '/services/data/v62.0/sobjects/' + objectName + '/describe/');
-            request.setHeader('Authorization', 'Bearer ' + sessionId);
-            request.setHeader('Content-Type', 'application/json');
-
-            Http http = new Http();
-            HTTPResponse response = http.send(request);
-
-            if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
-                System.debug('Failed to describe object ' + objectName + ': ' + response.getStatus());
+            Map<String, Object> untyped = describeSObject(sessionId, instanceUrl, objectName);
+            if (untyped == null) {
+                System.debug('Describe returned null for object ' + objectName);
                 return rootNode;
             }
-
-            Map<String, Object> untyped = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
             List<Object> fields = (List<Object>) untyped.get('fields');
+            List<Object> childRels = (List<Object>) untyped.get('childRelationships');
             
             if (fields != null) {
                 for (Object fieldObj : fields) {
@@ -264,6 +262,8 @@ public with sharing class ExternalOrgQueryController {
                     String relationshipName = (String) field.get('relationshipName');
                     List<Object> referenceTo = (List<Object>) field.get('referenceTo');
                     Boolean createable = (Boolean) field.get('createable');
+                    Boolean nillable = (Boolean) field.get('nillable');
+                    Boolean defaultedOnCreate = (Boolean) field.get('defaultedOnCreate');
                     
                     // Check if this is a lookup or master-detail relationship
                     if (fieldType == 'reference' && String.isNotBlank(relationshipName) && referenceTo != null && !referenceTo.isEmpty() && createable != null && createable) {
@@ -272,15 +272,34 @@ public with sharing class ExternalOrgQueryController {
                         String fieldName = (String) field.get('name');
                         
                         DependencyNode parentNode = new DependencyNode(parentObjectName, fieldName);
+                        parentNode.relationshipType = 'Lookup';
+                        // Required if non-nillable and not defaulted on create
+                        parentNode.isRequired = (nillable == false) && (defaultedOnCreate != true);
                         
                         // Recursively get parent dependencies with depth control
-                        DependencyNode parentTree = buildDependencyTree(sessionId, instanceUrl, parentObjectName, new Set<String>(visited), maxDepth, excludedObjects, currentDepth + 1);
+                        DependencyNode parentTree = buildDependencyTree(sessionId, instanceUrl, parentObjectName, visited, maxDepth, excludedObjects, currentDepth + 1);
                         if (parentTree != null) {
                             parentNode.parents = parentTree.parents;
+                            parentNode.children = parentTree.children;
                         }
                         
                         rootNode.parents.add(parentNode);
                     }
+                }
+            }
+
+            // Add child relationships (objects that reference this object)
+            if (childRels != null) {
+                for (Object crObj : childRels) {
+                    Map<String, Object> cr = (Map<String, Object>) crObj;
+                    String childSObject = (String) cr.get('childSObject');
+                    String childField = (String) cr.get('field');
+                    if (String.isBlank(childSObject) || String.isBlank(childField)) continue;
+                    if (excludedObjects.contains(childSObject)) continue;
+
+                    DependencyNode childNode = new DependencyNode(childSObject, childField);
+                    childNode.relationshipType = 'Child';
+                    rootNode.children.add(childNode);
                 }
             }
         } catch (Exception e) {
@@ -289,6 +308,94 @@ public with sharing class ExternalOrgQueryController {
 
         visited.remove(objectName);
         return rootNode;
+    }
+
+    // Describe helper with simple cache to avoid blowing callout limits
+    private static Map<String, Object> describeSObject(String sessionId, String instanceUrl, String objectName) {
+        if (String.isBlank(objectName)) return null;
+        if (describeCache.containsKey(objectName)) {
+            return describeCache.get(objectName);
+        }
+
+        HttpRequest request = new HttpRequest();
+        request.setMethod('GET');
+        request.setEndpoint(instanceUrl + '/services/data/v62.0/sobjects/' + objectName + '/describe/');
+        request.setHeader('Authorization', 'Bearer ' + sessionId);
+        request.setHeader('Content-Type', 'application/json');
+
+        Http http = new Http();
+        HTTPResponse response = http.send(request);
+
+        if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+            System.debug('Failed to describe object ' + objectName + ': ' + response.getStatus());
+            describeCache.put(objectName, null);
+            return null;
+        }
+
+        Map<String, Object> untyped = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
+        describeCache.put(objectName, untyped);
+        return untyped;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static QueryResultWrapper queryWithSession(String sessionId, String instanceUrl, String soql) {
+        if (String.isBlank(sessionId) || String.isBlank(instanceUrl) || String.isBlank(soql)) {
+            throw new AuraHandledException('SessionId, instanceUrl, and soql are required.');
+        }
+
+        HttpRequest request = new HttpRequest();
+        request.setMethod('GET');
+        String endpoint = instanceUrl + '/services/data/v62.0/query?q=' + EncodingUtil.urlEncode(soql, 'UTF-8');
+        request.setEndpoint(endpoint);
+        request.setHeader('Authorization', 'Bearer ' + sessionId);
+        request.setHeader('Content-Type', 'application/json');
+
+        Http http = new Http();
+        HTTPResponse response = http.send(request);
+
+        if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+            throw new AuraHandledException('Query failed: ' + response.getStatus() + ' ' + response.getBody());
+        }
+
+        Map<String, Object> untyped = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
+        QueryResultWrapper resultWrapper = new QueryResultWrapper();
+        resultWrapper.totalSize = (Integer) untyped.get('totalSize');
+        resultWrapper.done = (Boolean) untyped.get('done');
+        resultWrapper.nextRecordsUrl = (String) untyped.get('nextRecordsUrl');
+
+        List<Object> rawRecords = (List<Object>) untyped.get('records');
+        List<Map<String, Object>> rows = new List<Map<String, Object>>();
+        List<String> columns = new List<String>();
+        if (rawRecords != null) {
+            Map<String, Boolean> seenColumns = new Map<String, Boolean>();
+            for (Integer i = 0; i < rawRecords.size(); i++) {
+                Map<String, Object> rec = (Map<String, Object>) rawRecords[i];
+                if (rec == null) {
+                    continue;
+                }
+                rec.remove('attributes');
+                rows.add(rec);
+                if (i == 0) {
+                    for (String k : rec.keySet()) {
+                        if (!seenColumns.containsKey(k)) {
+                            columns.add(k);
+                            seenColumns.put(k, true);
+                        }
+                    }
+                } else {
+                    for (String k : rec.keySet()) {
+                        if (!seenColumns.containsKey(k)) {
+                            columns.add(k);
+                            seenColumns.put(k, true);
+                        }
+                    }
+                }
+            }
+        }
+
+        resultWrapper.columns = columns;
+        resultWrapper.rows = rows;
+        return resultWrapper;
     }
 
     private static LoginResult login(String username, String password, String environment) {

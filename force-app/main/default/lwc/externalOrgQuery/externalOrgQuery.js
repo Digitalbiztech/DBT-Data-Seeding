@@ -3,6 +3,7 @@ import loginAndQuery from '@salesforce/apex/ExternalOrgQueryController.loginAndQ
 import testConnection from '@salesforce/apex/ExternalOrgQueryController.testConnection';
 import getAvailableObjects from '@salesforce/apex/ExternalOrgQueryController.getAvailableObjects';
 import getObjectDependencies from '@salesforce/apex/ExternalOrgQueryController.getObjectDependencies';
+import queryWithSession from '@salesforce/apex/ExternalOrgQueryController.queryWithSession';
 
 export default class ExternalOrgQuery extends LightningElement {
     // UI state for external org connection and query execution
@@ -25,6 +26,8 @@ export default class ExternalOrgQuery extends LightningElement {
     @track allStandardObjects = [];
     @track selectedNodes = new Set();
     @track nodeFieldTypes = new Map();
+    @track recordLimit = 2;
+    @track tiebreakInput = '';
     isLoading = false;
 
     get environmentOptions() {
@@ -391,6 +394,254 @@ export default class ExternalOrgQuery extends LightningElement {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Failed to fetch objects');
             console.error('Error fetching objects', this.error);
         }
+    }
+
+    handleRecordLimitChange = (event) => {
+        const val = parseInt(event.target.value, 10);
+        this.recordLimit = Number.isFinite(val) && val > 0 ? val : 1;
+    };
+
+    async handleExportPlan() {
+        if (!this.dependencyTree || !this.selectedObject) {
+            this.error = 'Please select an object and check dependencies first';
+            return;
+        }
+
+        try {
+            this.isLoading = true;
+            const rootObject = this.dependencyTree.objectName;
+            const { orderGraph, nodeSet } = this.collectOrderGraphFromSelection(this.dependencyTree);
+            const rawOrder = this.computeExportOrder(orderGraph, rootObject, Array.from(nodeSet));
+            const finalOrder = this.applyPreferenceOrder(rawOrder, this.parseTiebreakInput(this.tiebreakInput));
+
+            const planPayload = {
+                type: 'EXPORT_PLAN',
+                root: rootObject,
+                order: finalOrder,
+                selectedNodesOnly: true,
+                preferences: this.parseTiebreakInput(this.tiebreakInput)
+            };
+            console.log(JSON.stringify(planPayload, null, 2));
+
+            const steps = finalOrder.map((obj, idx) => `${idx + 1}. ${obj}`);
+            console.log(JSON.stringify({ type: 'EXPORT_ORDER_HUMAN', message: `Retrieve in order: ${steps.join(' -> ')}` }));
+        } catch (e) {
+            const msg = e && e.message ? e.message : 'Failed to build export plan';
+            this.error = msg;
+            console.error('Export plan error', msg);
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    // Build a retrieval order strictly from selected nodes only (no queries)
+    handleOrderOnly = () => {
+        if (!this.dependencyTree || !this.selectedObject) {
+            this.error = 'Please select an object and check dependencies first';
+            return;
+        }
+
+        try {
+            const rootObject = this.dependencyTree.objectName;
+            const { orderGraph, nodeSet } = this.collectOrderGraphFromSelection(this.dependencyTree);
+            const rawOrder = this.computeExportOrder(orderGraph, rootObject, Array.from(nodeSet));
+            const finalOrder = this.applyPreferenceOrder(rawOrder, this.parseTiebreakInput(this.tiebreakInput));
+
+            const payload = {
+                type: 'ORDER_ONLY',
+                root: rootObject,
+                order: finalOrder,
+                selectedNodesOnly: true,
+                preferences: this.parseTiebreakInput(this.tiebreakInput)
+            };
+            console.log(JSON.stringify(payload, null, 2));
+
+            const steps = finalOrder.map((obj, idx) => `${idx + 1}. ${obj}`);
+            console.log(JSON.stringify({ type: 'EXPORT_ORDER_HUMAN', message: `Retrieve in order: ${steps.join(' -> ')}` }));
+        } catch (e) {
+            const msg = e && e.message ? e.message : 'Failed to build order';
+            this.error = msg;
+            console.error('Order only error', msg);
+        }
+    };
+
+    collectEdges(root) {
+        // Returns both:
+        // - edgesByObject: for querying parents (selected nodes only)
+        // - orderGraph: parent edges only for ordering (children excluded for minimal migrations)
+        const edgesByObject = new Map();
+        const orderGraph = new Map();
+
+        const addEdge = (map, fromObj, fieldName, toObj, fieldType) => {
+            if (!map.has(fromObj)) map.set(fromObj, []);
+            map.get(fromObj).push({ fieldName, target: toObj, fieldType });
+        };
+
+        const walkParents = (currentObjectName, nodes) => {
+            if (!nodes || !nodes.length) return;
+            for (const n of nodes) {
+                if (!n.isSelected) continue;
+                // For query and order (parents only)
+                addEdge(edgesByObject, currentObjectName, n.fieldName, n.objectName, n.fieldType || 'Id');
+                addEdge(orderGraph, currentObjectName, n.fieldName, n.objectName, n.fieldType || 'Id');
+                // Recurse up unless using ExternalId (treat as terminal)
+                if (n.fieldType !== 'ExternalId' && n.parents && n.parents.length) {
+                    walkParents(n.objectName, n.parents);
+                }
+            }
+        };
+
+        walkParents(root.objectName, root.parents || []);
+
+        return { edgesByObject, orderGraph };
+    }
+
+    // Construct only the ordering graph from selected nodes
+    collectOrderGraphFromSelection(root) {
+        const orderGraph = new Map(); // child -> [{ target: parent }]
+        const nodeSet = new Set([root.objectName]);
+
+        const addEdge = (fromObj, toObj) => {
+            if (!orderGraph.has(fromObj)) orderGraph.set(fromObj, []);
+            orderGraph.get(fromObj).push({ fieldName: '', target: toObj, fieldType: 'Id' });
+            nodeSet.add(fromObj);
+            nodeSet.add(toObj);
+        };
+
+        const walkParents = (currentObjectName, nodes) => {
+            if (!nodes || !nodes.length) return;
+            for (const n of nodes) {
+                if (!n.isSelected) continue;
+                addEdge(currentObjectName, n.objectName);
+                if (n.parents && n.parents.length) {
+                    walkParents(n.objectName, n.parents);
+                }
+            }
+        };
+
+        walkParents(root.objectName, root.parents || []);
+        return { orderGraph, nodeSet };
+    }
+
+    
+
+    handleTiebreakChange = (event) => {
+        this.tiebreakInput = event.target.value || '';
+    };
+
+    parseTiebreakInput(input) {
+        if (!input) return [];
+        const groups = [];
+        const lines = input.split(/\r?\n|;/).map(s => s.trim()).filter(Boolean);
+        for (const line of lines) {
+            const objs = line.split(',').map(s => s.trim()).filter(Boolean);
+            if (objs.length) groups.push(objs);
+        }
+        return groups;
+    }
+
+    applyPreferenceOrder(order, groups) {
+        if (!groups || !groups.length) return order;
+        const seen = new Set();
+        const result = [];
+        const lower = (s) => (s || '').toLowerCase();
+        for (const group of groups) {
+            const set = new Set(group.map(lower));
+            for (const obj of order) {
+                if (!seen.has(obj) && set.has(lower(obj))) {
+                    result.push(obj);
+                    seen.add(obj);
+                }
+            }
+        }
+        for (const obj of order) {
+            if (!seen.has(obj)) {
+                result.push(obj);
+                seen.add(obj);
+            }
+        }
+        return result;
+    }
+
+    async runQueryWithSession(soql) {
+        return queryWithSession({
+            sessionId: this.sessionId,
+            instanceUrl: this.instanceUrl,
+            soql
+        });
+    }
+
+    chunkArray(arr, size) {
+        const out = [];
+        for (let i = 0; i < arr.length; i += size) {
+            out.push(arr.slice(i, i + size));
+        }
+        return out;
+    }
+
+    computeExportOrder(edgesByObject, rootObject, idSetKeys = []) {
+        // Build nodes, adjacency (parent -> children), and in-degree(children)
+        const nodes = new Set(idSetKeys || []);
+        const adj = new Map();
+        const inDegree = new Map();
+
+        const ensureNode = (n) => {
+            if (!inDegree.has(n)) inDegree.set(n, 0);
+        };
+
+        for (const [fromObj, edges] of edgesByObject.entries()) {
+            nodes.add(fromObj);
+            ensureNode(fromObj);
+            for (const e of edges) {
+                nodes.add(e.target);
+                ensureNode(e.target);
+                // Edge: parent (target) -> child (fromObj)
+                if (!adj.has(e.target)) adj.set(e.target, new Set());
+                if (!adj.get(e.target).has(fromObj)) {
+                    adj.get(e.target).add(fromObj);
+                    inDegree.set(fromObj, (inDegree.get(fromObj) || 0) + 1);
+                }
+            }
+        }
+
+        // Ensure all idSetKeys exist in maps
+        for (const n of nodes) ensureNode(n);
+
+        // Kahn's algorithm with tie-breaker: prioritize root when it becomes available
+        const order = [];
+        const inQueue = new Set();
+        const queue = [];
+
+        const enqueue = (n, prioritize = false) => {
+            if (inQueue.has(n)) return;
+            if (prioritize) {
+                queue.unshift(n);
+            } else {
+                queue.push(n);
+            }
+            inQueue.add(n);
+        };
+
+        for (const n of nodes) {
+            if ((inDegree.get(n) || 0) === 0) enqueue(n, n === rootObject);
+        }
+
+        while (queue.length) {
+            const n = queue.shift();
+            order.push(n);
+            const children = Array.from(adj.get(n) || []);
+            for (const c of children) {
+                inDegree.set(c, (inDegree.get(c) || 0) - 1);
+                if ((inDegree.get(c) || 0) === 0) enqueue(c, c === rootObject);
+            }
+        }
+
+        // Add any isolated nodes not reached
+        for (const n of nodes) {
+            if (!order.includes(n)) order.push(n);
+        }
+
+        return order;
     }
 
     async handleCheckPlan() {
