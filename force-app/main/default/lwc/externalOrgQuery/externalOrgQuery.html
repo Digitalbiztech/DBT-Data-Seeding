@@ -1,0 +1,283 @@
+<template>
+    <lightning-card title="External Org SOQL Runner" icon-name="utility:database">
+        <div class="slds-p-around_medium slds-grid slds-wrap slds-gutters">
+            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                <lightning-input type="text" label="Username" value={username} onchange={handleUsernameChange}></lightning-input>
+            </div>
+            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                <lightning-input type="password" label="Password" value={password} onchange={handlePasswordChange}></lightning-input>
+            </div>
+            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                <lightning-combobox
+                    name="environment"
+                    label="Environment"
+                    value={environment}
+                    placeholder="Select Environment"
+                    options={environmentOptions}
+                    onchange={handleEnvironmentChange}
+                ></lightning-combobox>
+            </div>
+            <div class="slds-col slds-size_1-of-1">
+                <lightning-textarea label="SOQL" value={soql} onchange={handleSoqlChange} placeholder="SELECT Id, Name FROM Account LIMIT 10"></lightning-textarea>
+            </div>
+            <div class="slds-col slds-size_1-of-1">
+                <lightning-button class="slds-m-right_small" variant="neutral" label="Test Connection" onclick={handleTestConnection} if:true={showTestButton}></lightning-button>
+                <lightning-button variant="brand" label="Run Query" onclick={handleRunQuery} disabled={isRunDisabled}></lightning-button>
+            </div>
+        </div>
+        <template if:true={error}>
+            <div class="slds-p-horizontal_medium slds-text-color_error">{error}</div>
+        </template>
+        <template if:true={testMessage}>
+            <div class="slds-p-horizontal_medium slds-text-color_success">{testMessage}</div>
+        </template>
+
+        <!-- Object Selection Section -->
+        <template if:true={showObjectPicker}>
+            <div class="slds-p-horizontal_medium slds-p-bottom_small">
+                <lightning-combobox
+                    name="objectPicker"
+                    label="Select Object"
+                    value={selectedObject}
+                    placeholder="Choose an object"
+                    options={objectOptions}
+                    onchange={handleObjectChange}
+                ></lightning-combobox>
+            </div>
+            
+            <!-- Dependency Tree Configuration -->
+            <template if:false={selectedObjectEmpty}>
+                <div class="slds-p-horizontal_medium slds-p-bottom_small">
+                    <div class="slds-grid slds-wrap slds-gutters">
+                        <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
+                            <lightning-input 
+                                type="number" 
+                                label="Max Depth" 
+                                value={maxDepth}
+                                min="1"
+                                max="10"
+                                onchange={handleDepthChange}
+                            ></lightning-input>
+                        </div>
+                        <div class="slds-col slds-size_1-of-1 slds-medium-size_2-of-3">
+                            <lightning-dual-listbox
+                                name="excludedObjects"
+                                label="Excluded Objects (objects to skip in dependency tree)"
+                                source-label="Available"
+                                selected-label="Excluded"
+                                options={excludedObjectOptions}
+                                value={excludedObjects}
+                                onchange={handleExcludedObjectsChange}
+                            ></lightning-dual-listbox>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Filter Buttons -->
+                    <div class="slds-p-top_small">
+                        <div class="slds-text-body_small slds-m-bottom_x-small">Quick Filters:</div>
+                        <lightning-button-group>
+                            <lightning-button 
+                                variant="neutral" 
+                                label="Exclude Standard Objects" 
+                                onclick={handleSelectStandardObjects}
+                            ></lightning-button>
+                            <lightning-button 
+                                variant="neutral" 
+                                label="Exclude Custom Objects" 
+                                onclick={handleSelectCustomObjects}
+                            ></lightning-button>
+                            <lightning-button 
+                                variant="neutral" 
+                                label="Clear Exclusions" 
+                                onclick={handleClearExclusions}
+                            ></lightning-button>
+                        </lightning-button-group>
+                    </div>
+                </div>
+                
+                <div class="slds-p-horizontal_medium slds-p-bottom_small">
+                    <lightning-button 
+                        variant="brand" 
+                        label="Check Plan" 
+                        onclick={handleCheckPlan}
+                        disabled={selectedObjectEmpty}
+                    ></lightning-button>
+                </div>
+            </template>
+        </template>
+
+        <!-- Dependency Tree Output Panel -->
+        <template if:true={dependencyTree}>
+            <div class="slds-p-around_medium">
+                <h3 class="slds-text-heading_small slds-m-bottom_medium">
+                    Parent Object Dependencies for <strong>{dependencyTree.objectName}</strong>
+                </h3>
+                <template if:true={hasDependencies}>
+                    <div class="dependency-tree-container">
+                        <template for:each={dependencyTree.parents} for:item="parent">
+                            <div key={parent.objectName} class="dependency-node-card slds-box slds-theme_default slds-m-bottom_small" 
+                                 data-relationship-type={parent.relationshipType}>
+                                <div class="dependency-node-header slds-grid slds-grid_align-spread slds-grid_vertical-align-center">
+                                    <div class="slds-grid slds-grid_vertical-align-center slds-gutters_small">
+                                        <div class="slds-col">
+                                            <lightning-input 
+                                                type="radio" 
+                                                name="nodeSelection"
+                                                data-node-id={parent.objectName}_{parent.fieldName}_1}
+                                                checked="true"
+                                                onchange={handleNodeSelection}>
+                                            </lightning-input>
+                                        </div>
+                                        <div class="slds-col">
+                                            <span class="slds-text-heading_small slds-text-color_default">
+                                                {parent.objectName}
+                                            </span>
+                                        </div>
+                                        <div class="slds-col">
+                                            <span class="slds-text-body_regular slds-text-color_weak">=</span>
+                                        </div>
+                                        <div class="slds-col">
+                                            <span class="slds-text-body_regular slds-text-color_default">
+                                                {parent.fieldName}
+                                            </span>
+                                        </div>
+                                        <div class="slds-col">
+                                            <lightning-combobox
+                                                data-node-id={parent.objectName}_{parent.fieldName}_1}
+                                                value="Id"
+                                                options={fieldTypeOptions}
+                                                onchange={handleFieldTypeChange}
+                                                variant="label-hidden">
+                                            </lightning-combobox>
+                                        </div>
+                                    </div>
+                                    <div class="slds-col slds-no-flex">
+                                        <span class="slds-badge slds-badge_lightest">
+                                            {parent.relationshipType}
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Child Nodes -->
+                                <template if:true={parent.parents}>
+                                    <div class="dependency-children slds-p-left_medium slds-m-top_small">
+                                        <template for:each={parent.parents} for:item="child">
+                                            <div key={child.objectName} class="dependency-node-card slds-box slds-theme_default slds-m-bottom_small" 
+                                                 data-relationship-type={child.relationshipType}>
+                                                <div class="dependency-node-header slds-grid slds-grid_align-spread slds-grid_vertical-align-center">
+                                                    <div class="slds-grid slds-grid_vertical-align-center slds-gutters_small">
+                                                        <div class="slds-col">
+                                                            <lightning-input 
+                                                                type="radio" 
+                                                                name="nodeSelection"
+                                                                data-node-id={child.objectName}_{child.fieldName}_2}
+                                                                checked="true"
+                                                                onchange={handleNodeSelection}>
+                                                            </lightning-input>
+                                                        </div>
+                                                        <div class="slds-col">
+                                                            <span class="slds-text-heading_small slds-text-color_default">
+                                                                {child.objectName}
+                                                            </span>
+                                                        </div>
+                                                        <div class="slds-col">
+                                                            <span class="slds-text-body_regular slds-text-color_weak">=</span>
+                                                        </div>
+                                                        <div class="slds-col">
+                                                            <span class="slds-text-body_regular slds-text-color_default">
+                                                                {child.fieldName}
+                                                            </span>
+                                                        </div>
+                                                        <div class="slds-col">
+                                                            <lightning-combobox
+                                                                data-node-id={child.objectName}_{child.fieldName}_2}
+                                                                value="Id"
+                                                                options={fieldTypeOptions}
+                                                                onchange={handleFieldTypeChange}
+                                                                variant="label-hidden">
+                                                            </lightning-combobox>
+                                                        </div>
+                                                    </div>
+                                                    <div class="slds-col slds-no-flex">
+                                                        <span class="slds-badge slds-badge_lightest">
+                                                            {child.relationshipType}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Grandchild Nodes -->
+                                                <template if:true={child.parents}>
+                                                    <div class="dependency-children slds-p-left_medium slds-m-top_small">
+                                                        <template for:each={child.parents} for:item="grandchild">
+                                                            <div key={grandchild.objectName} class="dependency-node-card slds-box slds-theme_default slds-m-bottom_small" 
+                                                                 data-relationship-type={grandchild.relationshipType}>
+                                                                <div class="dependency-node-header slds-grid slds-grid_align-spread slds-grid_vertical-align-center">
+                                                                    <div class="slds-grid slds-grid_vertical-align-center slds-gutters_small">
+                                                                        <div class="slds-col">
+                                                                            <lightning-input 
+                                                                                type="radio" 
+                                                                                name="nodeSelection"
+                                                                                data-node-id={grandchild.objectName}_{grandchild.fieldName}_3}
+                                                                                checked="true"
+                                                                                onchange={handleNodeSelection}>
+                                                                            </lightning-input>
+                                                                        </div>
+                                                                        <div class="slds-col">
+                                                                            <span class="slds-text-heading_small slds-text-color_default">
+                                                                                {grandchild.objectName}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div class="slds-col">
+                                                                            <span class="slds-text-body_regular slds-text-color_weak">=</span>
+                                                                        </div>
+                                                                        <div class="slds-col">
+                                                                            <span class="slds-text-body_regular slds-text-color_default">
+                                                                                {grandchild.fieldName}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div class="slds-col">
+                                                                            <lightning-combobox
+                                                                                data-node-id={grandchild.objectName}_{grandchild.fieldName}_3}
+                                                                                value="Id"
+                                                                                options={fieldTypeOptions}
+                                                                                onchange={handleFieldTypeChange}
+                                                                                variant="label-hidden">
+                                                                            </lightning-combobox>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="slds-col slds-no-flex">
+                                                                        <span class="slds-badge slds-badge_lightest">
+                                                                            {grandchild.relationshipType}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+                <template if:false={hasDependencies}>
+                    <div class="slds-box slds-theme_shade slds-p-around_medium">
+                        <p class="slds-text-body_regular slds-text-color_weak">
+                            <lightning-icon icon-name="utility:info" size="x-small" class="slds-m-right_x-small"></lightning-icon>
+                            No parent object dependencies found for this object.
+                        </p>
+                    </div>
+                </template>
+            </div>
+        </template>
+        <template if:true={hasResults}>
+            <div class="slds-p-around_medium">
+                <lightning-datatable key-field="key" data={rows} columns={columns} hide-checkbox-column>
+                </lightning-datatable>
+            </div>
+        </template>
+    </lightning-card>
+</template>
