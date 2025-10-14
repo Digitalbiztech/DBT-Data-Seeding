@@ -1,0 +1,51 @@
+<template>
+    <div class={node.cardClass} data-relationship-type={node.relationshipType}>
+        <div class="dependency-node-header">
+            <div class="node-row">
+                <div class="node-main">
+                    <lightning-input
+                        class="node-radio"
+                        type="radio"
+                        name={node.nodeId}
+                        data-node-id={node.nodeId}
+                        checked={node.isSelected}
+                        onclick={onRadioClick}
+                        onchange={onRadioChange}>
+                    </lightning-input>
+                    <div class="node-label">
+                        <span class="node-object">{node.objectName}</span>
+                        <span class="node-field">{node.fieldName}</span>
+                    </div>
+                </div>
+                <div class="node-controls">
+                    <lightning-combobox
+                        class="node-field-picker"
+                        data-node-id={node.nodeId}
+                        value={node.fieldType}
+                        options={fieldTypeOptions}
+                        onchange={onFieldTypeChange}
+                        variant="label-hidden">
+                    </lightning-combobox>
+                    <span class="dependency-pill slds-badge slds-badge_lightest">
+                        {node.relationshipType}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <template if:true={node.parents}>
+            <div class="dependency-children">
+                <template for:each={node.parents} for:item="child">
+                    <c-external-org-query-node
+                        key={child.nodeId}
+                        node={child}
+                        field-type-options={fieldTypeOptions}
+                        onnodetoggle={bubbleToggle}
+                        onfieldtypechange={bubbleFieldType}>
+                    </c-external-org-query-node>
+                </template>
+            </div>
+        </template>
+    </div>
+</template>
+

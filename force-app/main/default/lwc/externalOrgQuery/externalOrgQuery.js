@@ -106,14 +106,6 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     // Simple getter methods for template
-    get isNodeSelected() {
-        return (nodeId) => this.selectedNodes.has(nodeId);
-    }
-
-    get getNodeFieldType() {
-        return (nodeId) => this.nodeFieldTypes.get(nodeId) || 'Id';
-    }
-
     handleUsernameChange = (event) => { this.username = event.target.value; this.testMessage = undefined; this.error = undefined; this.resetObjectSelection(); console.log('Username updated'); };
     handlePasswordChange = (event) => { this.password = event.target.value; this.testMessage = undefined; this.error = undefined; this.resetObjectSelection(); console.log('Password updated'); };
     handleEnvironmentChange = (event) => { this.environment = event.detail.value; };
@@ -126,131 +118,194 @@ export default class ExternalOrgQuery extends LightningElement {
     handleClearExclusions = () => { this.excludedObjects = []; this.dependencyTree = undefined; };
     
     handleNodeSelection = (event) => {
-        const { nodeObject, nodeField, nodeDepth } = event.target.dataset;
-        const nodeId = this.generateNodeId(nodeObject, nodeField, nodeDepth);
-        const isSelected = event.target.checked;
-        
+        const { nodeId } = event.target.dataset;
+        this.updateNodeSelection(nodeId, event.target.checked);
+    };
+
+    handleNodeClick = (event) => {
+        const { nodeId } = event.target.dataset;
+        const node = this.findNodeInTree(this.dependencyTree, nodeId);
+        if (!node) return;
+
+        if (node.isSelected) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.target.checked = false;
+            this.updateNodeSelection(nodeId, false);
+        }
+    };
+
+    updateNodeSelection = (nodeId, isSelected) => {
         if (isSelected) {
             this.selectedNodes.add(nodeId);
         } else {
             this.selectedNodes.delete(nodeId);
         }
         
-        // Handle cascading behavior
-        this.handleCascadingSelection(nodeId, isSelected);
-        
-        // Force reactivity update
-        this.selectedNodes = new Set(this.selectedNodes);
-    };
-    
-    handleCascadingSelection = (nodeId, isSelected) => {
-        // Find the node in the dependency tree
         const node = this.findNodeInTree(this.dependencyTree, nodeId);
+        if (node) {
+            node.isSelected = isSelected;
+            node.cardClass = this.computeCardClass(node);
+            this.handleCascadingSelection(node, isSelected);
+        }
+        
+        this.selectedNodes = new Set(this.selectedNodes);
+        this.refreshDependencyTree();
+    };
+
+    handleCascadingSelection = (node, isSelected) => {
         if (!node) return;
         
         if (isSelected) {
-            // When checking a parent, check all its children
-            this.checkAllChildren(node, nodeId.split('_')[2]); // depth from nodeId
+            this.checkAllChildren(node);
         } else {
-            // When unchecking a parent, uncheck all its children
-            this.uncheckAllChildren(node, nodeId.split('_')[2]); // depth from nodeId
+            this.uncheckAllChildren(node);
         }
+        
+        node.cardClass = this.computeCardClass(node);
     };
     
     findNodeInTree = (root, targetNodeId) => {
-        if (!root || !root.parents) return null;
-        
+        if (!root) return null;
+
+        if (root.nodeId === targetNodeId) {
+            return root;
+        }
+
+        if (!root.parents || root.parents.length === 0) {
+            return null;
+        }
+
         for (let parent of root.parents) {
-            const parentNodeId = this.generateNodeId(parent.objectName, parent.fieldName, 1);
-            if (parentNodeId === targetNodeId) {
-                return parent;
-            }
-            
-            // Check children
-            if (parent.parents && parent.parents.length > 0) {
-                for (let child of parent.parents) {
-                    const childNodeId = this.generateNodeId(child.objectName, child.fieldName, 2);
-                    if (childNodeId === targetNodeId) {
-                        return child;
-                    }
-                    
-                    // Check grandchildren
-                    if (child.parents && child.parents.length > 0) {
-                        for (let grandchild of child.parents) {
-                            const grandchildNodeId = this.generateNodeId(grandchild.objectName, grandchild.fieldName, 3);
-                            if (grandchildNodeId === targetNodeId) {
-                                return grandchild;
-                            }
-                        }
-                    }
-                }
+            const found = this.findNodeInTree(parent, targetNodeId);
+            if (found) {
+                return found;
             }
         }
+
         return null;
     };
     
-    checkAllChildren = (node, currentDepth) => {
+    checkAllChildren = (node) => {
         if (!node.parents || node.parents.length === 0) return;
         
-        const nextDepth = parseInt(currentDepth) + 1;
         node.parents.forEach(child => {
-            const childNodeId = this.generateNodeId(child.objectName, child.fieldName, nextDepth);
-            this.selectedNodes.add(childNodeId);
-            this.checkAllChildren(child, nextDepth);
+            child.isSelected = true;
+            child.cardClass = this.computeCardClass(child);
+            this.selectedNodes.add(child.nodeId);
+            this.checkAllChildren(child);
         });
     };
     
-    uncheckAllChildren = (node, currentDepth) => {
+    uncheckAllChildren = (node) => {
         if (!node.parents || node.parents.length === 0) return;
         
-        const nextDepth = parseInt(currentDepth) + 1;
         node.parents.forEach(child => {
-            const childNodeId = this.generateNodeId(child.objectName, child.fieldName, nextDepth);
-            this.selectedNodes.delete(childNodeId);
-            this.uncheckAllChildren(child, nextDepth);
+            child.isSelected = false;
+            child.cardClass = this.computeCardClass(child);
+            if (child.nodeId) {
+                this.selectedNodes.delete(child.nodeId);
+            }
+            this.uncheckAllChildren(child);
         });
     };
     
+    handleNodeToggle = (event) => {
+        const { nodeId, isSelected } = event.detail || {};
+        if (!nodeId) return;
+        this.updateNodeSelection(nodeId, isSelected);
+    };
+
     handleFieldTypeChange = (event) => {
-        const { nodeObject, nodeField, nodeDepth } = event.target.dataset;
-        const nodeId = this.generateNodeId(nodeObject, nodeField, nodeDepth);
-        const fieldType = event.detail.value;
+        const nodeId = (event.detail && event.detail.nodeId) || (event.target && event.target.dataset && event.target.dataset.nodeId);
+        const fieldType = (event.detail && (event.detail.fieldType || event.detail.value));
         this.nodeFieldTypes.set(nodeId, fieldType);
+        const node = this.findNodeInTree(this.dependencyTree, nodeId);
+        if (node) {
+            node.fieldType = fieldType;
+        }
         
-        // Force reactivity update
         this.nodeFieldTypes = new Map(this.nodeFieldTypes);
-    };
-    
-    isNodeSelected = (nodeId) => {
-        return this.selectedNodes.has(nodeId);
-    };
-    
-    getNodeFieldType = (nodeId) => {
-        return this.nodeFieldTypes.get(nodeId) || 'Id';
+        this.refreshDependencyTree();
     };
     
     generateNodeId = (objectName, fieldName, depth) => {
         return `${objectName}_${fieldName}_${depth}`;
     };
     
-    initializeNodeStates = (node, depth = 0) => {
-        if (!node) return;
-        
-        // Initialize current node
-        const nodeId = this.generateNodeId(node.objectName, node.fieldName, depth);
-        this.selectedNodes.add(nodeId);
-        this.nodeFieldTypes.set(nodeId, 'Id');
-        
-        // Initialize child nodes
-        if (node.parents && node.parents.length > 0) {
-            node.parents.forEach(parent => {
-                this.initializeNodeStates(parent, depth + 1);
-            });
+    decorateDependencyTree = (tree) => {
+        if (!tree) {
+            return tree;
         }
-        
-        // Force reactivity update
+
+        const decorated = { ...tree };
+        const parents = tree.parents || [];
+
+        this.selectedNodes = new Set();
+        this.nodeFieldTypes = new Map();
+
+        decorated.parents = this.decorateNodes(parents, 1, 'r');
+
         this.selectedNodes = new Set(this.selectedNodes);
         this.nodeFieldTypes = new Map(this.nodeFieldTypes);
+
+        return decorated;
+    };
+
+    decorateNodes = (nodes, depth, path) => {
+        if (!nodes || nodes.length === 0) {
+            return [];
+        }
+
+        return nodes.map((node, index) => {
+            const objectKey = node.objectName || `object_${depth}_${index}`;
+            const fieldKey = node.fieldName || `field_${depth}_${index}`;
+            const idSuffix = `${path}-${index}`;
+            const nodeId = `${this.generateNodeId(objectKey, fieldKey, depth)}_${idSuffix}`;
+            const fieldType = this.nodeFieldTypes.has(nodeId) ? this.nodeFieldTypes.get(nodeId) : 'Id';
+
+            const decoratedNode = {
+                ...node,
+                nodeId,
+                depth,
+                isSelected: true,
+                fieldType,
+            };
+
+            decoratedNode.cardClass = this.computeCardClass(decoratedNode);
+
+            this.selectedNodes.add(nodeId);
+            this.nodeFieldTypes.set(nodeId, fieldType);
+
+            if (node.parents && node.parents.length > 0) {
+                decoratedNode.parents = this.decorateNodes(node.parents, depth + 1, idSuffix);
+            }
+
+            return decoratedNode;
+        });
+    };
+
+    computeCardClass = (node) => {
+        const baseClass = 'dependency-node-card slds-box slds-theme_default slds-m-bottom_small';
+        return node && node.isSelected === false ? `${baseClass} unchecked` : baseClass;
+    };
+
+    refreshDependencyTree = () => {
+        this.dependencyTree = this.cloneTree(this.dependencyTree);
+    };
+
+    cloneTree = (node) => {
+        if (!node) {
+            return node;
+        }
+
+        const clonedNode = { ...node };
+
+        if (node.parents && node.parents.length > 0) {
+            clonedNode.parents = node.parents.map(child => this.cloneTree(child));
+        }
+
+        return clonedNode;
     };
 
     async handleRunQuery() {
@@ -356,10 +411,7 @@ export default class ExternalOrgQuery extends LightningElement {
                 maxDepth: this.maxDepth,
                 excludedObjects: this.excludedObjects
             });
-            this.dependencyTree = dependencies;
-            
-            // Initialize node selections and field types
-            this.initializeNodeStates(dependencies);
+            this.dependencyTree = this.decorateDependencyTree(dependencies);
             
             console.log('Dependencies retrieved:', dependencies);
         } catch (e) {
