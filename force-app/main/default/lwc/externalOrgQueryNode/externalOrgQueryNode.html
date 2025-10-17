@@ -22,7 +22,16 @@
                 </template>
             </div>
             <div class="plan-node__details">
-                <div class="plan-node__label" title={node.label}>{node.label}</div><template if:true={node.meta}><div class="plan-node__meta">{node.meta}</div></template>
+                <template if:true={isEdge}>
+                    <lightning-input type="checkbox" checked={node.isSelected} onchange={handleEdgeCheckboxChange} class="slds-m-right_x-small"></lightning-input>
+                </template>
+                <template if:true={isObject}>
+                    <lightning-input type="checkbox" checked={objectChecked} onchange={handleObjectCheckboxChange} class="slds-m-right_x-small"></lightning-input>
+                </template>
+                <div class="plan-node__label" title={node.label}>{node.label}</div>
+                <template if:true={node.meta}>
+                    <div class="plan-node__meta">{node.meta}</div>
+                </template>
                 <template if:true={node.fieldName}>
                     <div class="plan-node__meta">via {node.fieldName}</div>
                 </template>
@@ -43,4 +52,5 @@
         </template>
     </div>
 </template>
+
 

@@ -150,7 +150,9 @@
                     <c-external-org-query-node
                         node={planRoot}
                         onplannodetoggle={handlePlanNodeToggle}
-                        onplannodedrop={handlePlanNodeDrop}>
+                        onplannodedrop={handlePlanNodeDrop}
+                        onplanedgetoggle={handlePlanEdgeToggle}
+                        onplanobjecttoggle={handlePlanObjectToggle}>
                     </c-external-org-query-node>
                 </div>
             </div>
@@ -163,3 +165,5 @@
         </template>
     </lightning-card>
 </template>
+
+

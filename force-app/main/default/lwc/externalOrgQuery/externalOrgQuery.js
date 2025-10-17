@@ -274,14 +274,14 @@ export default class ExternalOrgQuery extends LightningElement {
         return edgesByObject;
     }
 
-    buildPlanTree(rootObject, order, edgesByObject) {
+        buildPlanTree(rootObject, order, edgesByObject) {
         const buildEdgeNode = (fromObj, edge, pathKey, depth, visited) => {
-            const edgeId = edge----;
-            const childObjectNode = buildObjectNode(edge.target, ${pathKey}o, depth + 1, visited);
+            const edgeId = `edge-${pathKey}-${fromObj}-${edge.fieldName}-${edge.target}`;
+            const childObjectNode = buildObjectNode(edge.target, `${pathKey}o`, depth + 1, visited);
             return {
                 id: edgeId,
                 type: 'edge',
-                label: ${edge.fieldName} ? ,
+                label: `${edge.fieldName} -> ${edge.target}`,
                 objectName: fromObj,
                 fieldName: edge.fieldName,
                 targetObject: edge.target,
@@ -293,8 +293,8 @@ export default class ExternalOrgQuery extends LightningElement {
             };
         };
 
-        const buildObjectNode = (objectName, pathKey = \"r\", depth = 0, visited = new Set()) => {
-            const nodeId = obj--;
+        const buildObjectNode = (objectName, pathKey = 'r', depth = 0, visited = new Set()) => {
+            const nodeId = `obj-${pathKey}-${objectName}`;
             const node = {
                 id: nodeId,
                 type: 'object',
@@ -305,67 +305,21 @@ export default class ExternalOrgQuery extends LightningElement {
                 draggable: depth === 0,
                 children: []
             };
-            if (visited.has(${pathKey}|)) {
+            if (visited.has(`${pathKey}|${objectName}`)) {
                 node.isLeaf = true;
                 return node;
             }
             const nextVisited = new Set(visited);
-            nextVisited.add(${pathKey}|);
+            nextVisited.add(`${pathKey}|${objectName}`);
             const edges = edgesByObject.get(objectName) || [];
             edges.forEach((e, idx) => {
-                node.children.push(buildEdgeNode(objectName, e, ${pathKey}e, depth + 1, nextVisited));
+                node.children.push(buildEdgeNode(objectName, e, `${pathKey}e${idx}`, depth + 1, nextVisited));
             });
             node.isLeaf = node.children.length === 0;
             return node;
         };
 
         const root = buildObjectNode(rootObject, 'r', 0, new Set());
-        root.draggable = false;
-        root.label = Export Plan for ;
-        root.id = 'plan-root';
-        return root;
-    }
-            return grouped;
-        };
-
-        const buildObjectNode = (objectName, visited = new Set(), depth = 0) => {
-            const nodeId = `obj-${objectName}`;
-            const edges = edgesByObject.get(objectName) || [];
-            const grouped = groupEdgesByTarget(edges);
-            const node = {
-                id: nodeId,
-                label: objectName,
-                objectName,
-                isCollapsed: depth > 0,
-                isLeaf: grouped.size === 0,
-                draggable: true,
-                children: []
-            };
-            if (visited.has(objectName)) {
-                return node;
-            }
-            const nextVisited = new Set(visited);
-            nextVisited.add(objectName);
-            for (const [targetObj, fieldNames] of grouped.entries()) {
-                const child = buildObjectNode(targetObj, nextVisited, depth + 1);
-                if (fieldNames && fieldNames.size) {
-                    child.meta = `${Array.from(fieldNames).join(', ')}`;
-                }
-                node.children.push(child);
-            }
-            node.isLeaf = node.children.length === 0;
-            return node;
-        };
-
-        const root = buildObjectNode(rootObject, new Set(), 0);
-        if (Array.isArray(order) && order.length && root.children && root.children.length) {
-            const indexByName = new Map(order.map((n, i) => [n, i]));
-            root.children.sort((a, b) => {
-                const ia = indexByName.has(a.objectName) ? indexByName.get(a.objectName) : Number.MAX_SAFE_INTEGER;
-                const ib = indexByName.has(b.objectName) ? indexByName.get(b.objectName) : Number.MAX_SAFE_INTEGER;
-                return ia - ib;
-            });
-        }
         root.draggable = false;
         root.label = `Export Plan for ${rootObject}`;
         root.id = 'plan-root';
@@ -511,7 +465,8 @@ export default class ExternalOrgQuery extends LightningElement {
         this.error = undefined;
         try {
             this.isLoading = true;
-            const queriedMap = await this.collectIds(order, limit, this.planEdges);
+            const selectedEdges = this.collectSelectedEdgesFromPlan(this.planRoot);
+            const queriedMap = await this.collectIds(order, limit, selectedEdges);
             const cloned = new Map();
             for (const [objectName, idSet] of queriedMap.entries()) {
                 cloned.set(objectName, new Set(idSet));
@@ -528,6 +483,67 @@ export default class ExternalOrgQuery extends LightningElement {
         }
     }
 
+    handlePlanEdgeToggle = (event) => {
+        const { nodeId, isSelected } = event.detail || {};
+        if (!nodeId) return;
+        const root = this.clonePlanNode(this.planRoot);
+        const info = this.findParentAndIndexById(root, nodeId);
+        if (!info) return;
+        const edgeNode = info.parent.children[info.index];
+        edgeNode.isSelected = !!isSelected;
+        this.planRoot = root;
+    };
+
+    handlePlanObjectToggle = (event) => {
+        const { nodeId, isSelected } = event.detail || {};
+        if (!nodeId) return;
+        const root = this.clonePlanNode(this.planRoot);
+        const info = this.findParentAndIndexById(root, nodeId);
+        if (!info) return;
+        const objectNode = info.parent.children[info.index] || (info.parent.id === nodeId ? info.parent : null);
+        if (!objectNode) return;
+        const setEdges = (node, selected) => {
+            if (!node || !Array.isArray(node.children)) return;
+            for (const child of node.children) {
+                if (child.type === 'edge') {
+                    child.isSelected = !!selected;
+                    if (child.children && child.children[0]) setEdges(child.children[0], selected);
+                } else {
+                    setEdges(child, selected);
+                }
+            }
+        };
+        setEdges(objectNode, !!isSelected);
+        this.planRoot = root;
+    };
+
+    collectSelectedEdgesFromPlan(root) {
+        const map = new Map();
+        const add = (fromObj, fieldName, toObj) => {
+            if (!map.has(fromObj)) map.set(fromObj, []);
+            map.get(fromObj).push({ fieldName, target: toObj });
+        };
+        const walk = (node, currentObject) => {
+            if (!node) return;
+            if (node.type === 'object') {
+                currentObject = node.objectName;
+            }
+            if (Array.isArray(node.children)) {
+                for (const child of node.children) {
+                    if (child.type === 'edge') {
+                        if (child.isSelected) add(currentObject, child.fieldName, child.targetObject);
+                        if (child.children && child.children[0]) {
+                            walk(child.children[0], child.targetObject);
+                        }
+                    } else {
+                        walk(child, currentObject);
+                    }
+                }
+            }
+        };
+        walk(root, root && root.objectName);
+        return map;
+    }
     async collectIds(order, limit, edgesByObject) {
         const queried = new Map();
         const pending = new Map();
@@ -863,4 +879,8 @@ export default class ExternalOrgQuery extends LightningElement {
         this.lastQueriedIdSnapshot = undefined;
     }
 }
+
+
+
+
 

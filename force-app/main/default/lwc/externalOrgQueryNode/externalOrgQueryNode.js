@@ -7,6 +7,14 @@ export default class ExternalOrgQueryNode extends LightningElement {
         return this.node && Array.isArray(this.node.children) && this.node.children.length > 0;
     }
 
+    get isEdge() {
+        return this.node && this.node.type === 'edge';
+    }
+
+    get isObject() {
+        return this.node && this.node.type === 'object';
+    }
+
     get isDraggable() {
         return this.node && !!this.node.draggable;
     }
@@ -39,6 +47,49 @@ export default class ExternalOrgQueryNode extends LightningElement {
         this.dispatchEvent(
             new CustomEvent('plannodetoggle', {
                 detail: { nodeId: this.node.id },
+                bubbles: true,
+                composed: true
+            })
+        );
+    };
+
+    handleEdgeCheckboxChange = (event) => {
+        const checked = !!event.target.checked;
+        this.dispatchEvent(
+            new CustomEvent('planedgetoggle', {
+                detail: { nodeId: this.node.id, isSelected: checked },
+                bubbles: true,
+                composed: true
+            })
+        );
+    };
+
+    get objectChecked() {
+        // object checkbox reflects whether all descendant edges are selected
+        const allEdgesSelected = (node) => {
+            if (!node || !Array.isArray(node.children) || !node.children.length) {
+                return true;
+            }
+            for (const child of node.children) {
+                if (child.type === 'edge') {
+                    if (!child.isSelected) return false;
+                    if (child.children && child.children[0]) {
+                        if (!allEdgesSelected(child.children[0])) return false;
+                    }
+                } else {
+                    if (!allEdgesSelected(child)) return false;
+                }
+            }
+            return true;
+        };
+        return allEdgesSelected(this.node);
+    }
+
+    handleObjectCheckboxChange = (event) => {
+        const checked = !!event.target.checked;
+        this.dispatchEvent(
+            new CustomEvent('planobjecttoggle', {
+                detail: { nodeId: this.node.id, isSelected: checked },
                 bubbles: true,
                 composed: true
             })
