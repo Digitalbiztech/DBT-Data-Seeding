@@ -278,6 +278,10 @@ export default class ExternalOrgQuery extends LightningElement {
         const buildEdgeNode = (fromObj, edge, pathKey, depth, visited) => {
             const edgeId = `edge-${pathKey}-${fromObj}-${edge.fieldName}-${edge.target}`;
             const childObjectNode = buildObjectNode(edge.target, `${pathKey}o`, depth + 1, visited);
+            if (childObjectNode) {
+                childObjectNode.suppressHeader = true;
+                childObjectNode.isCollapsed = false;
+            }
             return {
                 id: edgeId,
                 type: 'edge',
@@ -491,6 +495,21 @@ export default class ExternalOrgQuery extends LightningElement {
         if (!info) return;
         const edgeNode = info.parent.children[info.index];
         edgeNode.isSelected = !!isSelected;
+        // Cascade selection state down to all descendant edges below the target object
+        const cascade = (node, selected) => {
+            if (!node || !Array.isArray(node.children)) return;
+            for (const child of node.children) {
+                if (child.type === 'edge') {
+                    child.isSelected = !!selected;
+                    if (child.children && child.children[0]) cascade(child.children[0], selected);
+                } else {
+                    cascade(child, selected);
+                }
+            }
+        };
+        if (edgeNode.children && edgeNode.children[0]) {
+            cascade(edgeNode.children[0], !!isSelected);
+        }
         this.planRoot = root;
     };
 
@@ -621,10 +640,15 @@ export default class ExternalOrgQuery extends LightningElement {
             }
         }
         const candidates = order.filter((objectName) => !referencedAsTarget.has(objectName));
-        if (candidates.length) {
-            return candidates;
+        // Only bootstrap objects that still have selected outgoing edges
+        const withEdges = candidates.filter((obj) => {
+            const edges = edgesByObject.get(obj) || [];
+            return edges.length > 0;
+        });
+        if (withEdges.length) {
+            return withEdges;
         }
-        return [order[order.length - 1]];
+        return [];
     }
 
     async queryAndProcess(objectName, options, edgesByObject, queried, pending) {
@@ -651,6 +675,10 @@ export default class ExternalOrgQuery extends LightningElement {
                 await this.processQueryRows(objectName, soql, edges, queried, pending);
             }
         } else {
+            // Bootstrap query: only run if there are selected outgoing edges
+            if (fieldList.length === 0) {
+                return; // no selected paths from this object; skip bootstrapping it
+            }
             const soql = `SELECT ${selectClause} FROM ${objectName} LIMIT ${options.limit}`;
             await this.processQueryRows(objectName, soql, edges, queried, pending);
         }

@@ -6,6 +6,7 @@
         ondragstart={handleDragStart}
         ondragover={handleDragOver}
         ondrop={handleDrop}>
+        <template if:true={showHeader}>
         <div class="plan-node__header">
             <div class="plan-node__toggle">
                 <template if:true={hasChildren}>
@@ -25,7 +26,7 @@
                 <template if:true={isEdge}>
                     <lightning-input type="checkbox" checked={node.isSelected} onchange={handleEdgeCheckboxChange} class="slds-m-right_x-small"></lightning-input>
                 </template>
-                <template if:true={isObject}>
+                <template if:true={showObjectCheckbox}>
                     <lightning-input type="checkbox" checked={objectChecked} onchange={handleObjectCheckboxChange} class="slds-m-right_x-small"></lightning-input>
                 </template>
                 <div class="plan-node__label" title={node.label}>{node.label}</div>
@@ -40,6 +41,7 @@
                 <lightning-icon icon-name="utility:drag_and_drop" size="xx-small" class="plan-node__drag"></lightning-icon>
             </template>
         </div>
+        </template>
 
         <template if:true={hasChildren}>
             <template if:false={node.isCollapsed}>

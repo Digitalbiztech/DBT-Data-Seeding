@@ -19,6 +19,22 @@ export default class ExternalOrgQueryNode extends LightningElement {
         return this.node && !!this.node.draggable;
     }
 
+    get showHeader() {
+        // Show header for edges always; for object nodes, suppress when flagged by parent edge
+        if (!this.node) return true;
+        if (this.isEdge) return true;
+        if (this.isObject && this.node.suppressHeader) return false;
+        return true;
+    }
+
+    get isRoot() {
+        return this.node && this.node.id === 'plan-root';
+    }
+
+    get showObjectCheckbox() {
+        return this.isObject && !this.isRoot;
+    }
+
     get containerClass() {
         const classes = ['plan-node'];
         if (this.hasChildren) {
