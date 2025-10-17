@@ -3,6 +3,7 @@ import loginAndQuery from '@salesforce/apex/ExternalOrgQueryController.loginAndQ
 import testConnection from '@salesforce/apex/ExternalOrgQueryController.testConnection';
 import getAvailableObjects from '@salesforce/apex/ExternalOrgQueryController.getAvailableObjects';
 import getObjectDependencies from '@salesforce/apex/ExternalOrgQueryController.getObjectDependencies';
+import getCreateableFields from '@salesforce/apex/ExternalOrgQueryController.getCreateableFields';
 import queryWithSession from '@salesforce/apex/ExternalOrgQueryController.queryWithSession';
 
 export default class ExternalOrgQuery extends LightningElement {
@@ -23,12 +24,15 @@ export default class ExternalOrgQuery extends LightningElement {
     @track showObjectPicker = false;
     @track maxDepth = 3;
     @track excludedObjects = [];
-    @track allStandardObjects = [];
-    @track selectedNodes = new Set();
-    @track nodeFieldTypes = new Map();
-    @track recordLimit = 2;
-    @track tiebreakInput = '';
+    @track planRoot;
+    @track planReady = false;
+    @track exportLimit = 50;
+    @track exportOrder = [];
+    @track lastQueriedIdSnapshot;
     isLoading = false;
+
+    planEdges = new Map();
+    lastQueriedIdSets = new Map();
 
     get environmentOptions() {
         // Environment options for login host selection
@@ -57,9 +61,14 @@ export default class ExternalOrgQuery extends LightningElement {
         }));
     }
 
-    get hasDependencies() {
-        return this.dependencyTree && this.dependencyTree.parents && this.dependencyTree.parents.length > 0;
+    @track objectFilter = '';
+    get filteredObjectOptions() {
+        const term = (this.objectFilter || '').toLowerCase();
+        const opts = this.objectOptions;
+        if (!term) return opts;
+        return opts.filter(o => (o.label && o.label.toLowerCase().includes(term)) || (o.value && o.value.toLowerCase().includes(term)));
     }
+    handleObjectFilterChange = (event) => { this.objectFilter = event.target.value || ''; };
 
     get selectedObjectEmpty() {
         return !this.selectedObject;
@@ -97,17 +106,6 @@ export default class ExternalOrgQuery extends LightningElement {
         return this.availableObjects.filter(obj => !this.standardObjects.includes(obj));
     }
 
-    get fieldTypeOptions() {
-        return [
-            { label: 'Id', value: 'Id' },
-            { label: 'ExternalId', value: 'ExternalId' }
-        ];
-    }
-
-    get rootDepth() {
-        return 1;
-    }
-
     // Simple getter methods for template
     handleUsernameChange = (event) => { this.username = event.target.value; this.testMessage = undefined; this.error = undefined; this.resetObjectSelection(); console.log('Username updated'); };
     handlePasswordChange = (event) => { this.password = event.target.value; this.testMessage = undefined; this.error = undefined; this.resetObjectSelection(); console.log('Password updated'); };
@@ -119,197 +117,277 @@ export default class ExternalOrgQuery extends LightningElement {
     handleSelectStandardObjects = () => { this.excludedObjects = this.standardObjects; this.dependencyTree = undefined; };
     handleSelectCustomObjects = () => { this.excludedObjects = this.customObjects; this.dependencyTree = undefined; };
     handleClearExclusions = () => { this.excludedObjects = []; this.dependencyTree = undefined; };
-    
-    handleNodeSelection = (event) => {
-        const { nodeId } = event.target.dataset;
-        this.updateNodeSelection(nodeId, event.target.checked);
-    };
 
-    handleNodeClick = (event) => {
-        const { nodeId } = event.target.dataset;
-        const node = this.findNodeInTree(this.dependencyTree, nodeId);
-        if (!node) return;
+    get hasPlan() {
+        return this.planReady && this.planRoot && Array.isArray(this.planRoot.children) && this.planRoot.children.length > 0;
+    }
 
-        if (node.isSelected) {
-            event.preventDefault();
-            event.stopPropagation();
-            event.target.checked = false;
-            this.updateNodeSelection(nodeId, false);
+    get canShowPlanControls() {
+        return this.hasPlan;
+    }
+
+    get hasCollectedIds() {
+        return this.lastQueriedIdSets && typeof this.lastQueriedIdSets.size === 'number' && this.lastQueriedIdSets.size > 0;
+    }
+
+    get isExportDisabled() {
+        return !this.hasPlan || !this.hasExportOrder || this.isLoading;
+    }
+
+    get isFinalExportDisabled() {
+        return this.isExportDisabled || !this.hasCollectedIds;
+    }
+
+    handlePlanNodeToggle = (event) => {
+        const { nodeId } = event.detail || {};
+        if (!nodeId || !this.planRoot) {
+            return;
+        }
+        const clonedRoot = this.clonePlanNode(this.planRoot);
+        if (this.toggleNodeCollapsed(clonedRoot, nodeId)) {
+            this.planRoot = clonedRoot;
         }
     };
 
-    updateNodeSelection = (nodeId, isSelected) => {
-        if (isSelected) {
-            this.selectedNodes.add(nodeId);
-        } else {
-            this.selectedNodes.delete(nodeId);
+    handlePlanNodeDrop = (event) => {
+        const { sourceId, targetId } = event.detail || {};
+        if (!sourceId || !targetId || sourceId === targetId || !this.planRoot) {
+            return;
         }
-        
-        const node = this.findNodeInTree(this.dependencyTree, nodeId);
-        if (node) {
-            node.isSelected = isSelected;
-            node.cardClass = this.computeCardClass(node);
-            this.handleCascadingSelection(node, isSelected);
+        const fromInfo = this.findParentAndIndexById(this.planRoot, sourceId);
+        const toInfo = this.findParentAndIndexById(this.planRoot, targetId);
+        if (!fromInfo || !toInfo || fromInfo.parent.id !== toInfo.parent.id) {
+            return; // only reorder within same parent for now
         }
-        
-        this.selectedNodes = new Set(this.selectedNodes);
-        this.refreshDependencyTree();
-    };
-
-    handleCascadingSelection = (node, isSelected) => {
-        if (!node) return;
-        
-        if (isSelected) {
-            this.checkAllChildren(node);
-        } else {
-            this.uncheckAllChildren(node);
+        const parent = fromInfo.parent;
+        const currentChildren = [...parent.children];
+        const [moved] = currentChildren.splice(fromInfo.index, 1);
+        currentChildren.splice(toInfo.index, 0, moved);
+        parent.children = currentChildren;
+        this.planRoot = this.clonePlanNode(this.planRoot);
+        if (parent.id === 'plan-root') {
+            this.exportOrder = currentChildren.map(node => node.objectName);
+            console.log(JSON.stringify({ type: 'PLAN_REORDER', order: this.exportOrder }, null, 2));
         }
-        
-        node.cardClass = this.computeCardClass(node);
-    };
-    
-    findNodeInTree = (root, targetNodeId) => {
-        if (!root) return null;
-
-        if (root.nodeId === targetNodeId) {
-            return root;
-        }
-
-        if (!root.parents || root.parents.length === 0) {
-            return null;
-        }
-
-        for (let parent of root.parents) {
-            const found = this.findNodeInTree(parent, targetNodeId);
-            if (found) {
-                return found;
-            }
-        }
-
-        return null;
-    };
-    
-    checkAllChildren = (node) => {
-        if (!node.parents || node.parents.length === 0) return;
-        
-        node.parents.forEach(child => {
-            child.isSelected = true;
-            child.cardClass = this.computeCardClass(child);
-            this.selectedNodes.add(child.nodeId);
-            this.checkAllChildren(child);
-        });
-    };
-    
-    uncheckAllChildren = (node) => {
-        if (!node.parents || node.parents.length === 0) return;
-        
-        node.parents.forEach(child => {
-            child.isSelected = false;
-            child.cardClass = this.computeCardClass(child);
-            if (child.nodeId) {
-                this.selectedNodes.delete(child.nodeId);
-            }
-            this.uncheckAllChildren(child);
-        });
-    };
-    
-    handleNodeToggle = (event) => {
-        const { nodeId, isSelected } = event.detail || {};
-        if (!nodeId) return;
-        this.updateNodeSelection(nodeId, isSelected);
     };
 
-    handleFieldTypeChange = (event) => {
-        const nodeId = (event.detail && event.detail.nodeId) || (event.target && event.target.dataset && event.target.dataset.nodeId);
-        const fieldType = (event.detail && (event.detail.fieldType || event.detail.value));
-        this.nodeFieldTypes.set(nodeId, fieldType);
-        const node = this.findNodeInTree(this.dependencyTree, nodeId);
-        if (node) {
-            node.fieldType = fieldType;
-        }
-        
-        this.nodeFieldTypes = new Map(this.nodeFieldTypes);
-        this.refreshDependencyTree();
-    };
-    
-    generateNodeId = (objectName, fieldName, depth) => {
-        return `${objectName}_${fieldName}_${depth}`;
-    };
-    
-    decorateDependencyTree = (tree) => {
-        if (!tree) {
-            return tree;
-        }
-
-        const decorated = { ...tree };
-        const parents = tree.parents || [];
-
-        this.selectedNodes = new Set();
-        this.nodeFieldTypes = new Map();
-
-        decorated.parents = this.decorateNodes(parents, 1, 'r');
-
-        this.selectedNodes = new Set(this.selectedNodes);
-        this.nodeFieldTypes = new Map(this.nodeFieldTypes);
-
-        return decorated;
-    };
-
-    decorateNodes = (nodes, depth, path) => {
-        if (!nodes || nodes.length === 0) {
-            return [];
-        }
-
-        return nodes.map((node, index) => {
-            const objectKey = node.objectName || `object_${depth}_${index}`;
-            const fieldKey = node.fieldName || `field_${depth}_${index}`;
-            const idSuffix = `${path}-${index}`;
-            const nodeId = `${this.generateNodeId(objectKey, fieldKey, depth)}_${idSuffix}`;
-            const fieldType = this.nodeFieldTypes.has(nodeId) ? this.nodeFieldTypes.get(nodeId) : 'Id';
-
-            const decoratedNode = {
-                ...node,
-                nodeId,
-                depth,
-                isSelected: true,
-                fieldType,
-            };
-
-            decoratedNode.cardClass = this.computeCardClass(decoratedNode);
-
-            this.selectedNodes.add(nodeId);
-            this.nodeFieldTypes.set(nodeId, fieldType);
-
-            if (node.parents && node.parents.length > 0) {
-                decoratedNode.parents = this.decorateNodes(node.parents, depth + 1, idSuffix);
-            }
-
-            return decoratedNode;
-        });
-    };
-
-    computeCardClass = (node) => {
-        const baseClass = 'dependency-node-card slds-box slds-theme_default slds-m-bottom_small';
-        return node && node.isSelected === false ? `${baseClass} unchecked` : baseClass;
-    };
-
-    refreshDependencyTree = () => {
-        this.dependencyTree = this.cloneTree(this.dependencyTree);
-    };
-
-    cloneTree = (node) => {
+    clonePlanNode(node) {
         if (!node) {
             return node;
         }
+        return {
+            ...node,
+            children: node.children ? node.children.map(child => this.clonePlanNode(child)) : []
+        };
+    }
 
-        const clonedNode = { ...node };
+    toggleNodeCollapsed(node, nodeId) {
+        if (!node) {
+            return false;
+        }
+        if (node.id === nodeId) {
+            node.isCollapsed = !node.isCollapsed;
+            return true;
+        }
+        if (node.children && node.children.length) {
+            for (const child of node.children) {
+                if (this.toggleNodeCollapsed(child, nodeId)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
-        if (node.parents && node.parents.length > 0) {
-            clonedNode.parents = node.parents.map(child => this.cloneTree(child));
+    buildPlanState(dependencyTree) {
+        if (!dependencyTree) {
+            this.planRoot = undefined;
+            this.planEdges = new Map();
+            this.exportOrder = [];
+            this.planReady = false;
+            return;
+        }
+        const edgesByObject = this.collectPlanEdges(dependencyTree);
+        const rootObject = dependencyTree.objectName;
+        const order = this.computeExportOrder(edgesByObject, rootObject);
+        this.exportOrder = order;
+        this.planEdges = edgesByObject;
+        this.planRoot = this.buildPlanTree(rootObject, order, edgesByObject);
+        this.planReady = true;
+        this.lastQueriedIdSets = new Map();
+        this.lastQueriedIdSnapshot = undefined;
+    }
+
+    collectPlanEdges(root) {
+        const edgesByObject = new Map();
+        const visitedEdges = new Set();
+        const addEdge = (fromObj, fieldName, toObj) => {
+            if (!fromObj || !fieldName || !toObj) {
+                return;
+            }
+            if (!edgesByObject.has(fromObj)) {
+                edgesByObject.set(fromObj, []);
+            }
+            const existing = edgesByObject.get(fromObj);
+            if (!existing.some(edge => edge.fieldName === fieldName && edge.target === toObj)) {
+                existing.push({ fieldName, target: toObj });
+            }
+        };
+
+        const walkParents = (currentObjectName, parents, path = new Set()) => {
+            if (!parents || !parents.length) {
+                return;
+            }
+            const nextPath = new Set(path);
+            if (currentObjectName) {
+                nextPath.add(currentObjectName);
+            }
+            for (const parent of parents) {
+                const edgeKey = `${currentObjectName}|${parent.fieldName}|${parent.objectName}`;
+                if (!visitedEdges.has(edgeKey)) {
+                    addEdge(currentObjectName, parent.fieldName, parent.objectName);
+                    visitedEdges.add(edgeKey);
+                }
+                if (parent.objectName && !nextPath.has(parent.objectName)) {
+                    walkParents(parent.objectName, parent.parents, nextPath);
+                }
+            }
+        };
+
+        if (root && root.objectName) {
+            walkParents(root.objectName, root.parents || []);
         }
 
-        return clonedNode;
-    };
+        const visitedObjects = new Set();
+        const collectObjects = (node) => {
+            if (!node || !node.objectName || visitedObjects.has(node.objectName)) {
+                return;
+            }
+            visitedObjects.add(node.objectName);
+            if (!edgesByObject.has(node.objectName)) {
+                edgesByObject.set(node.objectName, []);
+            }
+            (node.parents || []).forEach(collectObjects);
+        };
+        collectObjects(root);
+
+        return edgesByObject;
+    }
+
+    buildPlanTree(rootObject, order, edgesByObject) {
+        const buildEdgeNode = (fromObj, edge, pathKey, depth, visited) => {
+            const edgeId = edge----;
+            const childObjectNode = buildObjectNode(edge.target, ${pathKey}o, depth + 1, visited);
+            return {
+                id: edgeId,
+                type: 'edge',
+                label: ${edge.fieldName} ? ,
+                objectName: fromObj,
+                fieldName: edge.fieldName,
+                targetObject: edge.target,
+                isCollapsed: false,
+                isLeaf: false,
+                draggable: false,
+                isSelected: true,
+                children: childObjectNode ? [childObjectNode] : []
+            };
+        };
+
+        const buildObjectNode = (objectName, pathKey = \"r\", depth = 0, visited = new Set()) => {
+            const nodeId = obj--;
+            const node = {
+                id: nodeId,
+                type: 'object',
+                label: objectName,
+                objectName,
+                isCollapsed: depth > 0,
+                isLeaf: false,
+                draggable: depth === 0,
+                children: []
+            };
+            if (visited.has(${pathKey}|)) {
+                node.isLeaf = true;
+                return node;
+            }
+            const nextVisited = new Set(visited);
+            nextVisited.add(${pathKey}|);
+            const edges = edgesByObject.get(objectName) || [];
+            edges.forEach((e, idx) => {
+                node.children.push(buildEdgeNode(objectName, e, ${pathKey}e, depth + 1, nextVisited));
+            });
+            node.isLeaf = node.children.length === 0;
+            return node;
+        };
+
+        const root = buildObjectNode(rootObject, 'r', 0, new Set());
+        root.draggable = false;
+        root.label = Export Plan for ;
+        root.id = 'plan-root';
+        return root;
+    }
+            return grouped;
+        };
+
+        const buildObjectNode = (objectName, visited = new Set(), depth = 0) => {
+            const nodeId = `obj-${objectName}`;
+            const edges = edgesByObject.get(objectName) || [];
+            const grouped = groupEdgesByTarget(edges);
+            const node = {
+                id: nodeId,
+                label: objectName,
+                objectName,
+                isCollapsed: depth > 0,
+                isLeaf: grouped.size === 0,
+                draggable: true,
+                children: []
+            };
+            if (visited.has(objectName)) {
+                return node;
+            }
+            const nextVisited = new Set(visited);
+            nextVisited.add(objectName);
+            for (const [targetObj, fieldNames] of grouped.entries()) {
+                const child = buildObjectNode(targetObj, nextVisited, depth + 1);
+                if (fieldNames && fieldNames.size) {
+                    child.meta = `${Array.from(fieldNames).join(', ')}`;
+                }
+                node.children.push(child);
+            }
+            node.isLeaf = node.children.length === 0;
+            return node;
+        };
+
+        const root = buildObjectNode(rootObject, new Set(), 0);
+        if (Array.isArray(order) && order.length && root.children && root.children.length) {
+            const indexByName = new Map(order.map((n, i) => [n, i]));
+            root.children.sort((a, b) => {
+                const ia = indexByName.has(a.objectName) ? indexByName.get(a.objectName) : Number.MAX_SAFE_INTEGER;
+                const ib = indexByName.has(b.objectName) ? indexByName.get(b.objectName) : Number.MAX_SAFE_INTEGER;
+                return ia - ib;
+            });
+        }
+        root.draggable = false;
+        root.label = `Export Plan for ${rootObject}`;
+        root.id = 'plan-root';
+        return root;
+    }
+
+    findParentAndIndexById(node, id) {
+        if (!node || !id) return null;
+        const stack = [node];
+        while (stack.length) {
+            const current = stack.pop();
+            if (!current || !current.children) continue;
+            for (let i = 0; i < current.children.length; i++) {
+                const child = current.children[i];
+                if (child && child.id === id) {
+                    return { parent: current, index: i };
+                }
+                stack.push(child);
+            }
+        }
+        return null;
+    }
 
     async handleRunQuery() {
         this.error = undefined;
@@ -396,172 +474,10 @@ export default class ExternalOrgQuery extends LightningElement {
         }
     }
 
-    handleRecordLimitChange = (event) => {
+    handleLimitChange = (event) => {
         const val = parseInt(event.target.value, 10);
-        this.recordLimit = Number.isFinite(val) && val > 0 ? val : 1;
+        this.exportLimit = Number.isFinite(val) && val > 0 ? val : 1;
     };
-
-    async handleExportPlan() {
-        if (!this.dependencyTree || !this.selectedObject) {
-            this.error = 'Please select an object and check dependencies first';
-            return;
-        }
-
-        try {
-            this.isLoading = true;
-            const rootObject = this.dependencyTree.objectName;
-            const { orderGraph, nodeSet } = this.collectOrderGraphFromSelection(this.dependencyTree);
-            const rawOrder = this.computeExportOrder(orderGraph, rootObject, Array.from(nodeSet));
-            const finalOrder = this.applyPreferenceOrder(rawOrder, this.parseTiebreakInput(this.tiebreakInput));
-
-            const planPayload = {
-                type: 'EXPORT_PLAN',
-                root: rootObject,
-                order: finalOrder,
-                selectedNodesOnly: true,
-                preferences: this.parseTiebreakInput(this.tiebreakInput)
-            };
-            console.log(JSON.stringify(planPayload, null, 2));
-
-            const steps = finalOrder.map((obj, idx) => `${idx + 1}. ${obj}`);
-            console.log(JSON.stringify({ type: 'EXPORT_ORDER_HUMAN', message: `Retrieve in order: ${steps.join(' -> ')}` }));
-        } catch (e) {
-            const msg = e && e.message ? e.message : 'Failed to build export plan';
-            this.error = msg;
-            console.error('Export plan error', msg);
-        } finally {
-            this.isLoading = false;
-        }
-    }
-
-    // Build a retrieval order strictly from selected nodes only (no queries)
-    handleOrderOnly = () => {
-        if (!this.dependencyTree || !this.selectedObject) {
-            this.error = 'Please select an object and check dependencies first';
-            return;
-        }
-
-        try {
-            const rootObject = this.dependencyTree.objectName;
-            const { orderGraph, nodeSet } = this.collectOrderGraphFromSelection(this.dependencyTree);
-            const rawOrder = this.computeExportOrder(orderGraph, rootObject, Array.from(nodeSet));
-            const finalOrder = this.applyPreferenceOrder(rawOrder, this.parseTiebreakInput(this.tiebreakInput));
-
-            const payload = {
-                type: 'ORDER_ONLY',
-                root: rootObject,
-                order: finalOrder,
-                selectedNodesOnly: true,
-                preferences: this.parseTiebreakInput(this.tiebreakInput)
-            };
-            console.log(JSON.stringify(payload, null, 2));
-
-            const steps = finalOrder.map((obj, idx) => `${idx + 1}. ${obj}`);
-            console.log(JSON.stringify({ type: 'EXPORT_ORDER_HUMAN', message: `Retrieve in order: ${steps.join(' -> ')}` }));
-        } catch (e) {
-            const msg = e && e.message ? e.message : 'Failed to build order';
-            this.error = msg;
-            console.error('Order only error', msg);
-        }
-    };
-
-    collectEdges(root) {
-        // Returns both:
-        // - edgesByObject: for querying parents (selected nodes only)
-        // - orderGraph: parent edges only for ordering (children excluded for minimal migrations)
-        const edgesByObject = new Map();
-        const orderGraph = new Map();
-
-        const addEdge = (map, fromObj, fieldName, toObj, fieldType) => {
-            if (!map.has(fromObj)) map.set(fromObj, []);
-            map.get(fromObj).push({ fieldName, target: toObj, fieldType });
-        };
-
-        const walkParents = (currentObjectName, nodes) => {
-            if (!nodes || !nodes.length) return;
-            for (const n of nodes) {
-                if (!n.isSelected) continue;
-                // For query and order (parents only)
-                addEdge(edgesByObject, currentObjectName, n.fieldName, n.objectName, n.fieldType || 'Id');
-                addEdge(orderGraph, currentObjectName, n.fieldName, n.objectName, n.fieldType || 'Id');
-                // Recurse up unless using ExternalId (treat as terminal)
-                if (n.fieldType !== 'ExternalId' && n.parents && n.parents.length) {
-                    walkParents(n.objectName, n.parents);
-                }
-            }
-        };
-
-        walkParents(root.objectName, root.parents || []);
-
-        return { edgesByObject, orderGraph };
-    }
-
-    // Construct only the ordering graph from selected nodes
-    collectOrderGraphFromSelection(root) {
-        const orderGraph = new Map(); // child -> [{ target: parent }]
-        const nodeSet = new Set([root.objectName]);
-
-        const addEdge = (fromObj, toObj) => {
-            if (!orderGraph.has(fromObj)) orderGraph.set(fromObj, []);
-            orderGraph.get(fromObj).push({ fieldName: '', target: toObj, fieldType: 'Id' });
-            nodeSet.add(fromObj);
-            nodeSet.add(toObj);
-        };
-
-        const walkParents = (currentObjectName, nodes) => {
-            if (!nodes || !nodes.length) return;
-            for (const n of nodes) {
-                if (!n.isSelected) continue;
-                addEdge(currentObjectName, n.objectName);
-                if (n.parents && n.parents.length) {
-                    walkParents(n.objectName, n.parents);
-                }
-            }
-        };
-
-        walkParents(root.objectName, root.parents || []);
-        return { orderGraph, nodeSet };
-    }
-
-    
-
-    handleTiebreakChange = (event) => {
-        this.tiebreakInput = event.target.value || '';
-    };
-
-    parseTiebreakInput(input) {
-        if (!input) return [];
-        const groups = [];
-        const lines = input.split(/\r?\n|;/).map(s => s.trim()).filter(Boolean);
-        for (const line of lines) {
-            const objs = line.split(',').map(s => s.trim()).filter(Boolean);
-            if (objs.length) groups.push(objs);
-        }
-        return groups;
-    }
-
-    applyPreferenceOrder(order, groups) {
-        if (!groups || !groups.length) return order;
-        const seen = new Set();
-        const result = [];
-        const lower = (s) => (s || '').toLowerCase();
-        for (const group of groups) {
-            const set = new Set(group.map(lower));
-            for (const obj of order) {
-                if (!seen.has(obj) && set.has(lower(obj))) {
-                    result.push(obj);
-                    seen.add(obj);
-                }
-            }
-        }
-        for (const obj of order) {
-            if (!seen.has(obj)) {
-                result.push(obj);
-                seen.add(obj);
-            }
-        }
-        return result;
-    }
 
     async runQueryWithSession(soql) {
         return queryWithSession({
@@ -571,12 +487,262 @@ export default class ExternalOrgQuery extends LightningElement {
         });
     }
 
+    get hasExportOrder() {
+        return Array.isArray(this.exportOrder) && this.exportOrder.length > 0;
+    }
+
+    async handleExport() {
+        if (!this.sessionId || !this.instanceUrl) {
+            this.error = 'Please test connection first';
+            return;
+        }
+        if (!this.hasPlan || !this.hasExportOrder) {
+            this.error = 'Run Check Plan to build the export plan first';
+            return;
+        }
+
+        const limit = Number.isFinite(this.exportLimit) && this.exportLimit > 0 ? this.exportLimit : 1;
+        const order = [...this.exportOrder];
+        if (!order.length) {
+            this.error = 'No objects available in export order';
+            return;
+        }
+
+        this.error = undefined;
+        try {
+            this.isLoading = true;
+            const queriedMap = await this.collectIds(order, limit, this.planEdges);
+            const cloned = new Map();
+            for (const [objectName, idSet] of queriedMap.entries()) {
+                cloned.set(objectName, new Set(idSet));
+            }
+            this.lastQueriedIdSets = cloned;
+            this.lastQueriedIdSnapshot = this.serializeIdSets(cloned);
+            console.log(JSON.stringify({ type: 'ID_COLLECTION_RESULT', queriedIdSet: this.lastQueriedIdSnapshot }, null, 2));
+        } catch (e) {
+            const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Export failed');
+            this.error = msg;
+            console.error('Export error', msg);
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    async collectIds(order, limit, edgesByObject) {
+        const queried = new Map();
+        const pending = new Map();
+
+        for (const objectName of order) {
+            this.ensureObjectEntry(objectName, queried, pending);
+        }
+
+        const bootstrapObjects = this.getBootstrapObjects(order, edgesByObject);
+        for (const objectName of bootstrapObjects) {
+            await this.queryAndProcess(objectName, { limit }, edgesByObject, queried, pending);
+        }
+
+        while (true) {
+            let madeProgress = false;
+
+            for (let idx = order.length - 1; idx >= 0; idx -= 1) {
+                const objectName = order[idx];
+                const pendingSet = pending.get(objectName);
+                if (!pendingSet || pendingSet.size === 0) {
+                    continue;
+                }
+                const idsToQuery = Array.from(pendingSet).filter((id) => id && !queried.get(objectName).has(id));
+                if (!idsToQuery.length) {
+                    pendingSet.clear();
+                    continue;
+                }
+                await this.queryAndProcess(objectName, { ids: idsToQuery }, edgesByObject, queried, pending);
+                pendingSet.clear();
+                madeProgress = true;
+            }
+
+            if (!madeProgress) {
+                break;
+            }
+
+            const stillPending = order.some((objectName) => {
+                const set = pending.get(objectName);
+                if (!set || set.size === 0) {
+                    return false;
+                }
+                for (const id of set) {
+                    if (id && !queried.get(objectName).has(id)) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+
+            if (!stillPending) {
+                break;
+            }
+        }
+
+        return queried;
+    }
+
+    ensureObjectEntry(objectName, queried, pending) {
+        if (!queried.has(objectName)) {
+            queried.set(objectName, new Set());
+        }
+        if (!pending.has(objectName)) {
+            pending.set(objectName, new Set());
+        }
+    }
+
+    getBootstrapObjects(order, edgesByObject) {
+        if (!order || !order.length) {
+            return [];
+        }
+        const referencedAsTarget = new Set();
+        for (const edges of edgesByObject.values()) {
+            for (const edge of edges) {
+                referencedAsTarget.add(edge.target);
+            }
+        }
+        const candidates = order.filter((objectName) => !referencedAsTarget.has(objectName));
+        if (candidates.length) {
+            return candidates;
+        }
+        return [order[order.length - 1]];
+    }
+
+    async queryAndProcess(objectName, options, edgesByObject, queried, pending) {
+        this.ensureObjectEntry(objectName, queried, pending);
+        const edges = edgesByObject.get(objectName) || [];
+        const fieldSet = new Set();
+        for (const edge of edges) {
+            if (edge.fieldName) {
+                fieldSet.add(edge.fieldName);
+            }
+        }
+        const fieldList = Array.from(fieldSet);
+        const selectClause = fieldList.length ? `Id, ${fieldList.join(', ')}` : 'Id';
+
+        if (options.ids && options.ids.length) {
+            const batches = this.chunkArray(options.ids, 200);
+            for (const batch of batches) {
+                const cleaned = batch.filter(Boolean);
+                if (!cleaned.length) {
+                    continue;
+                }
+                const where = cleaned.map((id) => `'${id.replace(/'/g, "\\'")}'`).join(',');
+                const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
+                await this.processQueryRows(objectName, soql, edges, queried, pending);
+            }
+        } else {
+            const soql = `SELECT ${selectClause} FROM ${objectName} LIMIT ${options.limit}`;
+            await this.processQueryRows(objectName, soql, edges, queried, pending);
+        }
+    }
+
+    async processQueryRows(objectName, soql, edges, queried, pending) {
+        const result = await this.runQueryWithSession(soql);
+        const rows = (result && result.rows) || [];
+        const objectSet = queried.get(objectName);
+        for (const row of rows) {
+            if (!row) {
+                continue;
+            }
+            const rowId = row.Id;
+            if (rowId) {
+                objectSet.add(rowId);
+            }
+            for (const edge of edges) {
+                const rawValue = edge.fieldName ? row[edge.fieldName] : undefined;
+                if (!rawValue) {
+                    continue;
+                }
+                this.ensureObjectEntry(edge.target, queried, pending);
+                const targetPending = pending.get(edge.target);
+                const targetQueried = queried.get(edge.target);
+                const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+                for (const value of values) {
+                    if (!value) {
+                        continue;
+                    }
+                    const candidate = typeof value === 'object' && value !== null ? value.Id : value;
+                    if (typeof candidate === 'string' && candidate && !targetQueried.has(candidate)) {
+                        targetPending.add(candidate);
+                    }
+                }
+            }
+        }
+    }
+
+    serializeIdSets(idSetMap) {
+        const output = {};
+        for (const [objectName, idSet] of idSetMap.entries()) {
+            output[objectName] = Array.from(idSet).sort();
+        }
+        return output;
+    }
+
     chunkArray(arr, size) {
         const out = [];
         for (let i = 0; i < arr.length; i += size) {
             out.push(arr.slice(i, i + size));
         }
         return out;
+    }
+
+    async handleFinalExport() {
+        if (!this.sessionId || !this.instanceUrl) {
+            this.error = 'Please test connection first';
+            return;
+        }
+        if (!this.lastQueriedIdSets || this.lastQueriedIdSets.size === 0) {
+            this.error = 'Run Export to collect IDs before building final queries';
+            return;
+        }
+        const objectsWithIds = this.exportOrder.filter((objectName) => {
+            const set = this.lastQueriedIdSets.get(objectName);
+            return set && set.size > 0;
+        });
+        if (!objectsWithIds.length) {
+            this.error = 'No collected IDs available for final export';
+            return;
+        }
+
+        this.error = undefined;
+        try {
+            this.isLoading = true;
+            const creatableMap = await getCreateableFields({
+                sessionId: this.sessionId,
+                instanceUrl: this.instanceUrl,
+                objectNames: objectsWithIds
+            });
+
+            const queries = [];
+            for (const objectName of objectsWithIds) {
+                const ids = Array.from(this.lastQueriedIdSets.get(objectName) || []);
+                if (!ids.length) {
+                    continue;
+                }
+                const fields = (creatableMap && creatableMap[objectName]) || [];
+                const uniqueFields = ['Id', ...fields.filter((field) => field && field !== 'Id')];
+                const selectClause = uniqueFields.join(', ');
+                for (const batch of this.chunkArray(ids, 200)) {
+                    const where = batch.filter(Boolean).map((id) => `'${id.replace(/'/g, "\\'")}'`).join(',');
+                    if (!where) {
+                        continue;
+                    }
+                    const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
+                    queries.push({ objectName, count: batch.length, soql });
+                }
+            }
+
+            console.log(JSON.stringify({ type: 'FINAL_EXPORT_SOQL', queries }, null, 2));
+        } catch (e) {
+            this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Failed to build final export queries');
+            console.error('Final export error', this.error);
+        } finally {
+            this.isLoading = false;
+        }
     }
 
     computeExportOrder(edgesByObject, rootObject, idSetKeys = []) {
@@ -662,13 +828,19 @@ export default class ExternalOrgQuery extends LightningElement {
                 maxDepth: this.maxDepth,
                 excludedObjects: this.excludedObjects
             });
-            this.dependencyTree = this.decorateDependencyTree(dependencies);
+            this.dependencyTree = dependencies;
+            this.buildPlanState(dependencies);
+            console.log(JSON.stringify({ type: 'EXPORT_PLAN', root: this.selectedObject, order: this.exportOrder }, null, 2));
             
             console.log('Dependencies retrieved:', dependencies);
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Failed to get dependencies');
             console.error('Error getting dependencies', this.error);
             this.dependencyTree = undefined;
+            this.planRoot = undefined;
+            this.planEdges = new Map();
+            this.exportOrder = [];
+            this.planReady = false;
         } finally {
             this.isLoading = false;
         }
@@ -683,7 +855,12 @@ export default class ExternalOrgQuery extends LightningElement {
         this.instanceUrl = undefined;
         this.maxDepth = 3;
         this.excludedObjects = [];
-        this.selectedNodes = new Set();
-        this.nodeFieldTypes = new Map();
+        this.planRoot = undefined;
+        this.planEdges = new Map();
+        this.exportOrder = [];
+        this.planReady = false;
+        this.lastQueriedIdSets = new Map();
+        this.lastQueriedIdSnapshot = undefined;
     }
 }
+

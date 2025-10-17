@@ -338,6 +338,49 @@ public with sharing class ExternalOrgQueryController {
     }
 
     @AuraEnabled(cacheable=false)
+    public static Map<String, List<String>> getCreateableFields(
+        String sessionId,
+        String instanceUrl,
+        List<String> objectNames
+    ) {
+        if (String.isBlank(sessionId) || String.isBlank(instanceUrl)) {
+            throw new AuraHandledException('SessionId and instanceUrl are required.');
+        }
+        Map<String, List<String>> result = new Map<String, List<String>>();
+        if (objectNames == null || objectNames.isEmpty()) {
+            return result;
+        }
+
+        for (String objectName : objectNames) {
+            if (String.isBlank(objectName)) {
+                continue;
+            }
+            Map<String, Object> describeResult = describeSObject(sessionId, instanceUrl, objectName);
+            if (describeResult == null) {
+                continue;
+            }
+            List<String> creatableFields = new List<String>();
+            List<Object> fields = (List<Object>) describeResult.get('fields');
+            if (fields != null) {
+                for (Object fieldObj : fields) {
+                    Map<String, Object> field = (Map<String, Object>) fieldObj;
+                    Boolean creatable = (Boolean) field.get('createable');
+                    if (creatable == null || !creatable) {
+                        continue;
+                    }
+                    String fieldName = (String) field.get('name');
+                    if (String.isNotBlank(fieldName)) {
+                        creatableFields.add(fieldName);
+                    }
+                }
+            }
+            creatableFields.sort();
+            result.put(objectName, creatableFields);
+        }
+        return result;
+    }
+
+    @AuraEnabled(cacheable=false)
     public static QueryResultWrapper queryWithSession(String sessionId, String instanceUrl, String soql) {
         if (String.isBlank(sessionId) || String.isBlank(instanceUrl) || String.isBlank(soql)) {
             throw new AuraHandledException('SessionId, instanceUrl, and soql are required.');

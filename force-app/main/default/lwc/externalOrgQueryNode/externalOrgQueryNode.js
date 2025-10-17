@@ -2,66 +2,82 @@ import { LightningElement, api } from 'lwc';
 
 export default class ExternalOrgQueryNode extends LightningElement {
     @api node;
-    @api fieldTypeOptions = [];
 
-    onRadioClick = (event) => {
-        // Allow "radio" to toggle off when already selected
-        if (this.node && this.node.isSelected) {
-            event.preventDefault();
-            event.stopPropagation();
-            event.target.checked = false;
-            this.dispatchEvent(
-                new CustomEvent('nodetoggle', {
-                    detail: { nodeId: this.node.nodeId, isSelected: false },
-                    bubbles: true,
-                    composed: true
-                })
-            );
+    get hasChildren() {
+        return this.node && Array.isArray(this.node.children) && this.node.children.length > 0;
+    }
+
+    get isDraggable() {
+        return this.node && !!this.node.draggable;
+    }
+
+    get containerClass() {
+        const classes = ['plan-node'];
+        if (this.hasChildren) {
+            classes.push('plan-node--parent');
+        } else {
+            classes.push('plan-node--leaf');
         }
-    };
+        if (this.isDraggable) {
+            classes.push('plan-node--draggable');
+        }
+        return classes.join(' ');
+    }
 
-    onRadioChange = (event) => {
-        // Normal case: selecting the node (checked=true)
-        const checked = event.target.checked;
+    get toggleIcon() {
+        if (!this.hasChildren) {
+            return 'utility:dash';
+        }
+        return this.node.isCollapsed ? 'utility:chevronright' : 'utility:chevrondown';
+    }
+
+    handleToggle = (event) => {
+        event.stopPropagation();
+        if (!this.hasChildren) {
+            return;
+        }
         this.dispatchEvent(
-            new CustomEvent('nodetoggle', {
-                detail: { nodeId: this.node.nodeId, isSelected: checked },
+            new CustomEvent('plannodetoggle', {
+                detail: { nodeId: this.node.id },
                 bubbles: true,
                 composed: true
             })
         );
     };
 
-    onFieldTypeChange = (event) => {
-        const fieldType = event.detail.value;
-        this.dispatchEvent(
-            new CustomEvent('fieldtypechange', {
-                detail: { nodeId: this.node.nodeId, fieldType },
-                bubbles: true,
-                composed: true
-            })
-        );
+    handleDragStart = (event) => {
+        if (!this.isDraggable) {
+            event.preventDefault();
+            return;
+        }
+        event.stopPropagation();
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', this.node.id);
     };
 
-    // Just re-dispatch bubbling events from descendants
-    bubbleToggle = (event) => {
-        this.dispatchEvent(
-            new CustomEvent('nodetoggle', {
-                detail: event.detail,
-                bubbles: true,
-                composed: true
-            })
-        );
+    handleDragOver = (event) => {
+        if (!this.isDraggable) {
+            return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
     };
 
-    bubbleFieldType = (event) => {
+    handleDrop = (event) => {
+        if (!this.isDraggable) {
+            return;
+        }
+        event.preventDefault();
+        const sourceId = event.dataTransfer.getData('text/plain');
+        if (!sourceId || sourceId === this.node.id) {
+            return;
+        }
         this.dispatchEvent(
-            new CustomEvent('fieldtypechange', {
-                detail: event.detail,
+            new CustomEvent('plannodedrop', {
+                detail: { sourceId, targetId: this.node.id },
                 bubbles: true,
                 composed: true
             })
         );
     };
 }
-

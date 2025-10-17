@@ -1,50 +1,45 @@
 <template>
-    <div class={node.cardClass} data-relationship-type={node.relationshipType}>
-        <div class="dependency-node-header">
-            <div class="node-row">
-                <div class="node-main">
-                    <lightning-input
-                        class="node-radio"
-                        type="radio"
-                        name={node.nodeId}
-                        data-node-id={node.nodeId}
-                        checked={node.isSelected}
-                        onclick={onRadioClick}
-                        onchange={onRadioChange}>
-                    </lightning-input>
-                    <div class="node-label">
-                        <span class="node-object">{node.objectName}</span>
-                        <span class="node-field">{node.fieldName}</span>
-                    </div>
-                </div>
-                <div class="node-controls">
-                    <lightning-combobox
-                        class="node-field-picker"
-                        data-node-id={node.nodeId}
-                        value={node.fieldType}
-                        options={fieldTypeOptions}
-                        onchange={onFieldTypeChange}
-                        variant="label-hidden">
-                    </lightning-combobox>
-                    <span class="dependency-pill slds-badge slds-badge_lightest">
-                        {node.relationshipType}
-                    </span>
-                </div>
-            </div>
-        </div>
-
-        <template if:true={node.parents}>
-            <div class="dependency-children">
-                <template for:each={node.parents} for:item="child">
-                    <c-external-org-query-node
-                        key={child.nodeId}
-                        node={child}
-                        field-type-options={fieldTypeOptions}
-                        onnodetoggle={bubbleToggle}
-                        onfieldtypechange={bubbleFieldType}>
-                    </c-external-org-query-node>
+    <div
+        class={containerClass}
+        data-node-id={node.id}
+        draggable={isDraggable}
+        ondragstart={handleDragStart}
+        ondragover={handleDragOver}
+        ondrop={handleDrop}>
+        <div class="plan-node__header">
+            <div class="plan-node__toggle">
+                <template if:true={hasChildren}>
+                    <lightning-button-icon
+                        icon-name={toggleIcon}
+                        size="xx-small"
+                        variant="bare"
+                        alternative-text="Toggle children"
+                        onclick={handleToggle}>
+                    </lightning-button-icon>
+                </template>
+                <template if:false={hasChildren}>
+                    <lightning-icon icon-name="utility:record" size="xx-small" class="plan-node__leaf-icon"></lightning-icon>
                 </template>
             </div>
+            <div class="plan-node__details">
+                <div class="plan-node__label" title={node.label}>{node.label}</div><template if:true={node.meta}><div class="plan-node__meta">{node.meta}</div></template>
+                <template if:true={node.fieldName}>
+                    <div class="plan-node__meta">via {node.fieldName}</div>
+                </template>
+            </div>
+            <template if:true={isDraggable}>
+                <lightning-icon icon-name="utility:drag_and_drop" size="xx-small" class="plan-node__drag"></lightning-icon>
+            </template>
+        </div>
+
+        <template if:true={hasChildren}>
+            <template if:false={node.isCollapsed}>
+                <div class="plan-node__children">
+                    <template for:each={node.children} for:item="child">
+                        <c-external-org-query-node key={child.id} node={child}></c-external-org-query-node>
+                    </template>
+                </div>
+            </template>
         </template>
     </div>
 </template>

@@ -35,12 +35,14 @@
         <!-- Object Selection Section -->
         <template if:true={showObjectPicker}>
             <div class="slds-p-horizontal_medium slds-p-bottom_small">
+                <lightning-input type="search" label="Search Objects" value={objectFilter} onchange={handleObjectFilterChange} placeholder="Type to filter objects"></lightning-input>
                 <lightning-combobox
+                    class="slds-m-top_x-small"
                     name="objectPicker"
                     label="Select Object"
                     value={selectedObject}
                     placeholder="Choose an object"
-                    options={objectOptions}
+                    options={filteredObjectOptions}
                     onchange={handleObjectChange}
                 ></lightning-combobox>
             </div>
@@ -106,60 +108,51 @@
             </template>
         </template>
 
-        <!-- Dependency Tree Output Panel -->
-        <template if:true={dependencyTree}>
-            <div class="slds-p-around_medium">
-                <h3 class="slds-text-heading_small slds-m-bottom_medium">
-                    Parent Object Dependencies for <strong>{dependencyTree.objectName}</strong>
-                </h3>
-                <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small">
-                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
-                        <lightning-input
-                            type="number"
-                            label="Record Limit"
-                            value={recordLimit}
-                            min="1"
-                            onchange={handleRecordLimitChange}
-                        ></lightning-input>
+        <!-- Export Plan Panel -->
+        <template if:true={hasPlan}>
+            <div class="slds-p-around_medium plan-section">
+                <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small plan-header">
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                        <h3 class="slds-text-heading_small">
+                            Export Plan for <strong>{planRoot.objectName}</strong>
+                        </h3>
                     </div>
-                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3 slds-p-top_large">
-                        <lightning-button
-                            variant="brand-outline"
-                            label="Export Plan"
-                            onclick={handleExportPlan}
-                        ></lightning-button>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                        <div class="plan-controls slds-grid slds-wrap slds-gutters">
+                            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                                <lightning-input
+                                    type="number"
+                                    label="Bootstrap Limit"
+                                    value={exportLimit}
+                                    min="1"
+                                    onchange={handleLimitChange}
+                                ></lightning-input>
+                            </div>
+                            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons">
+                                <lightning-button
+                                    class="slds-m-right_small"
+                                    variant="brand"
+                                    label="Export"
+                                    onclick={handleExport}
+                                    disabled={isExportDisabled}
+                                ></lightning-button>
+                                <lightning-button
+                                    variant="brand-outline"
+                                    label="Final Export"
+                                    onclick={handleFinalExport}
+                                    disabled={isFinalExportDisabled}
+                                ></lightning-button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
-                        <lightning-textarea
-                            label="Tie-break Preferences"
-                            value={tiebreakInput}
-                            onchange={handleTiebreakChange}
-                            placeholder="Example: User, Group\nEmployee, Project\nProject_Employee__c\nTimesheet__c\nTimesheet_Line_Item__c">
-                        </lightning-textarea>
-                    </div>
-                    
                 </div>
-                <template if:true={hasDependencies}>
-                    <div class="dependency-tree-container">
-                        <template for:each={dependencyTree.parents} for:item="node">
-                            <c-external-org-query-node 
-                                key={node.nodeId}
-                                node={node}
-                                field-type-options={fieldTypeOptions}
-                                onnodetoggle={handleNodeToggle}
-                                onfieldtypechange={handleFieldTypeChange}>
-                            </c-external-org-query-node>
-                        </template>
-                    </div>
-                </template>
-                <template if:false={hasDependencies}>
-                    <div class="slds-box slds-theme_shade slds-p-around_medium">
-                        <p class="slds-text-body_regular slds-text-color_weak">
-                            <lightning-icon icon-name="utility:info" size="x-small" class="slds-m-right_x-small"></lightning-icon>
-                            No parent object dependencies found for this object.
-                        </p>
-                    </div>
-                </template>
+                <div class="plan-tree-container">
+                    <c-external-org-query-node
+                        node={planRoot}
+                        onplannodetoggle={handlePlanNodeToggle}
+                        onplannodedrop={handlePlanNodeDrop}>
+                    </c-external-org-query-node>
+                </div>
             </div>
         </template>
         <template if:true={hasResults}>
