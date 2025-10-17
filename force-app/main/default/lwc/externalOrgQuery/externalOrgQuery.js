@@ -166,7 +166,7 @@ export default class ExternalOrgQuery extends LightningElement {
         parent.children = currentChildren;
         this.planRoot = this.clonePlanNode(this.planRoot);
         if (parent.id === 'plan-root') {
-            this.exportOrder = currentChildren.map(node => node.objectName);
+            this.exportOrder = currentChildren.map(node => (node.type === 'edge' && node.targetObject) ? node.targetObject : (node.objectName || node.label));
             console.log(JSON.stringify({ type: 'PLAN_REORDER', order: this.exportOrder }, null, 2));
         }
     };
@@ -291,7 +291,7 @@ export default class ExternalOrgQuery extends LightningElement {
                 targetObject: edge.target,
                 isCollapsed: false,
                 isLeaf: false,
-                draggable: false,
+                draggable: depth === 1,
                 isSelected: true,
                 children: childObjectNode ? [childObjectNode] : []
             };

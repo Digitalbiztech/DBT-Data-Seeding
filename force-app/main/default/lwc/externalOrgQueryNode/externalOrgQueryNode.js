@@ -4,7 +4,12 @@ export default class ExternalOrgQueryNode extends LightningElement {
     @api node;
 
     get hasChildren() {
-        return this.node && Array.isArray(this.node.children) && this.node.children.length > 0;
+        if (!this.node) return false;
+        if (this.isEdge) {
+            const childObject = this.node.children && this.node.children[0];
+            return !!(childObject && Array.isArray(childObject.children) && childObject.children.length > 0);
+        }
+        return Array.isArray(this.node.children) && this.node.children.length > 0;
     }
 
     get isEdge() {
@@ -42,6 +47,7 @@ export default class ExternalOrgQueryNode extends LightningElement {
         } else {
             classes.push('plan-node--leaf');
         }
+        classes.push(this.isEdge ? 'plan-node--edge' : 'plan-node--object');
         if (this.isDraggable) {
             classes.push('plan-node--draggable');
         }

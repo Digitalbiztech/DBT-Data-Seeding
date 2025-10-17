@@ -8,6 +8,20 @@
     padding: 0.5rem 0.75rem;
 }
 
+/* Differentiate edge vs object nodes */
+.plan-node--edge {
+    border-left: 4px solid #5b9bd5;
+    background-color: #f6fbff;
+}
+
+.plan-node--object {
+    border-left: 4px solid #98a2b3;
+}
+
+.plan-node--edge .plan-node__label {
+    color: #0b5cab;
+}
+
 .plan-node:last-child {
     margin-bottom: 0;
 }
