@@ -117,33 +117,19 @@
                             Export Plan for <strong>{planRoot.objectName}</strong>
                         </h3>
                     </div>
-                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                        <div class="plan-controls slds-grid slds-wrap slds-gutters">
-                            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                                <lightning-input
-                                    type="number"
-                                    label="Bootstrap Limit"
-                                    value={exportLimit}
-                                    min="1"
-                                    onchange={handleLimitChange}
-                                ></lightning-input>
-                            </div>
-                            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons">
-                                <lightning-button
-                                    class="slds-m-right_small"
-                                    variant="brand"
-                                    label="Export"
-                                    onclick={handleExport}
-                                    disabled={isExportDisabled}
-                                ></lightning-button>
-                                <lightning-button
-                                    variant="brand-outline"
-                                    label="Final Export"
-                                    onclick={handleFinalExport}
-                                    disabled={isFinalExportDisabled}
-                                ></lightning-button>
-                            </div>
-                        </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons">
+                        <lightning-button
+                            class="slds-m-right_small"
+                            variant="neutral"
+                            label="Expand All"
+                            onclick={handleExpandAll}
+                        ></lightning-button>
+                        <lightning-button
+                            class="slds-m-right_small"
+                            variant="neutral"
+                            label="Collapse All"
+                            onclick={handleCollapseAll}
+                        ></lightning-button>
                     </div>
                 </div>
                 <div class="plan-tree-container">
@@ -154,6 +140,33 @@
                         onplanedgetoggle={handlePlanEdgeToggle}
                         onplanobjecttoggle={handlePlanObjectToggle}>
                     </c-external-org-query-node>
+                </div>
+                <!-- Bottom controls: Limit + Export actions -->
+                <div class="slds-grid slds-wrap slds-gutters slds-m-top_small plan-controls">
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                        <lightning-input
+                            type="number"
+                            label="Bootstrap Limit"
+                            value={exportLimit}
+                            min="1"
+                            onchange={handleLimitChange}
+                        ></lightning-input>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons">
+                        <lightning-button
+                            class="slds-m-right_small"
+                            variant="brand"
+                            label="Export"
+                            onclick={handleExport}
+                            disabled={isExportDisabled}
+                        ></lightning-button>
+                        <lightning-button
+                            variant="brand-outline"
+                            label="Final Export"
+                            onclick={handleFinalExport}
+                            disabled={isFinalExportDisabled}
+                        ></lightning-button>
+                    </div>
                 </div>
             </div>
         </template>

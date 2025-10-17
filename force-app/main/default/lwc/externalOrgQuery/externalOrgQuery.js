@@ -181,12 +181,45 @@ export default class ExternalOrgQuery extends LightningElement {
         };
     }
 
+    handleExpandAll = () => {
+        if (!this.planRoot) return;
+        const clone = this.clonePlanNode(this.planRoot);
+        const setCollapsed = (node, collapsed) => {
+            if (!node) return;
+            if (node.children && node.children.length) {
+                node.isCollapsed = collapsed;
+                for (const child of node.children) setCollapsed(child, collapsed);
+            }
+        };
+        setCollapsed(clone, false);
+        this.planRoot = clone;
+    };
+
+    handleCollapseAll = () => {
+        if (!this.planRoot) return;
+        const clone = this.clonePlanNode(this.planRoot);
+        const setCollapsed = (node, collapsed) => {
+            if (!node) return;
+            if (node.children && node.children.length) {
+                node.isCollapsed = collapsed;
+                for (const child of node.children) setCollapsed(child, collapsed);
+            }
+        };
+        setCollapsed(clone, true);
+        this.planRoot = clone;
+    };
+
     toggleNodeCollapsed(node, nodeId) {
         if (!node) {
             return false;
         }
         if (node.id === nodeId) {
             node.isCollapsed = !node.isCollapsed;
+            // If expanding an edge node with a suppressed child object header,
+            // also uncollapse the immediate child object so grandchildren become visible.
+            if (!node.isCollapsed && node.type === 'edge' && node.children && node.children[0]) {
+                node.children[0].isCollapsed = false;
+            }
             return true;
         }
         if (node.children && node.children.length) {
@@ -275,7 +308,7 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
         buildPlanTree(rootObject, order, edgesByObject) {
-        const buildEdgeNode = (fromObj, edge, pathKey, depth, visited) => {
+        const buildEdgeNode = (fromObj, edge, pathKey, depth, visited, seq) => {
             const edgeId = `edge-${pathKey}-${fromObj}-${edge.fieldName}-${edge.target}`;
             const childObjectNode = buildObjectNode(edge.target, `${pathKey}o`, depth + 1, visited);
             if (childObjectNode) {
@@ -291,8 +324,9 @@ export default class ExternalOrgQuery extends LightningElement {
                 targetObject: edge.target,
                 isCollapsed: false,
                 isLeaf: false,
-                draggable: depth === 1,
+                draggable: true,
                 isSelected: true,
+                seq,
                 children: childObjectNode ? [childObjectNode] : []
             };
         };
@@ -306,7 +340,7 @@ export default class ExternalOrgQuery extends LightningElement {
                 objectName,
                 isCollapsed: depth > 0,
                 isLeaf: false,
-                draggable: depth === 0,
+                draggable: true,
                 children: []
             };
             if (visited.has(`${pathKey}|${objectName}`)) {
@@ -317,7 +351,8 @@ export default class ExternalOrgQuery extends LightningElement {
             nextVisited.add(`${pathKey}|${objectName}`);
             const edges = edgesByObject.get(objectName) || [];
             edges.forEach((e, idx) => {
-                node.children.push(buildEdgeNode(objectName, e, `${pathKey}e${idx}`, depth + 1, nextVisited));
+                const edgeNode = buildEdgeNode(objectName, e, `${pathKey}e${idx}`, depth + 1, nextVisited, idx + 1);
+                node.children.push(edgeNode);
             });
             node.isLeaf = node.children.length === 0;
             return node;
@@ -495,20 +530,25 @@ export default class ExternalOrgQuery extends LightningElement {
         if (!info) return;
         const edgeNode = info.parent.children[info.index];
         edgeNode.isSelected = !!isSelected;
-        // Cascade selection state down to all descendant edges below the target object
-        const cascade = (node, selected) => {
+        // Cascade selection + lock state down to all descendant edges below the target object
+        const setDescendants = (node, selected) => {
             if (!node || !Array.isArray(node.children)) return;
             for (const child of node.children) {
                 if (child.type === 'edge') {
                     child.isSelected = !!selected;
-                    if (child.children && child.children[0]) cascade(child.children[0], selected);
+                    child.lockedByAncestor = !selected;
+                    if (child.children && child.children[0]) {
+                        child.children[0].lockedByAncestor = !selected;
+                        setDescendants(child.children[0], selected);
+                    }
                 } else {
-                    cascade(child, selected);
+                    child.lockedByAncestor = !selected;
+                    setDescendants(child, selected);
                 }
             }
         };
         if (edgeNode.children && edgeNode.children[0]) {
-            cascade(edgeNode.children[0], !!isSelected);
+            setDescendants(edgeNode.children[0], !!isSelected);
         }
         this.planRoot = root;
     };
@@ -519,20 +559,28 @@ export default class ExternalOrgQuery extends LightningElement {
         const root = this.clonePlanNode(this.planRoot);
         const info = this.findParentAndIndexById(root, nodeId);
         if (!info) return;
-        const objectNode = info.parent.children[info.index] || (info.parent.id === nodeId ? info.parent : null);
+        const objectNode = info.parent.children[info.index] || (info.parent && info.parent.id === nodeId ? info.parent : null);
         if (!objectNode) return;
-        const setEdges = (node, selected) => {
+        const setDescendants = (node, selected) => {
             if (!node || !Array.isArray(node.children)) return;
             for (const child of node.children) {
                 if (child.type === 'edge') {
                     child.isSelected = !!selected;
-                    if (child.children && child.children[0]) setEdges(child.children[0], selected);
+                    child.lockedByAncestor = !selected;
+                    if (child.children && child.children[0]) {
+                        // lock/unlock the target object subtree
+                        child.children[0].lockedByAncestor = !selected;
+                        setDescendants(child.children[0], selected);
+                    }
                 } else {
-                    setEdges(child, selected);
+                    child.lockedByAncestor = !selected;
+                    setDescendants(child, selected);
                 }
             }
         };
-        setEdges(objectNode, !!isSelected);
+        // Lock or unlock all descendants based on object selection
+        objectNode.lockedByAncestor = !isSelected;
+        setDescendants(objectNode, !!isSelected);
         this.planRoot = root;
     };
 

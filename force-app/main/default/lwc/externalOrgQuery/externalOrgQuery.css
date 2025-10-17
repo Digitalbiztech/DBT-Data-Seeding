@@ -23,7 +23,6 @@
 }
 
 .plan-tree-container {
-    min-height: 60vh;
     border-radius: 0.375rem;
     border: 1px solid #d8dde6;
     background: linear-gradient(135deg, #fdfefe 0%, #ffffff 100%);

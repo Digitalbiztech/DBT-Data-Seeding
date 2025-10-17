@@ -22,6 +22,25 @@
     color: #0b5cab;
 }
 
+/* Muted/locked visuals */
+.plan-node--locked {
+    opacity: 0.6;
+    border-left-color: #d0d5dd !important;
+    background-color: #fafafa;
+}
+
+lightning-input.plan-checkbox--locked {
+    opacity: 0.5;
+    filter: grayscale(80%);
+    cursor: not-allowed;
+}
+
+.plan-node__seq {
+    margin-right: 0.25rem;
+    color: #98a2b3;
+    font-weight: 600;
+}
+
 .plan-node:last-child {
     margin-bottom: 0;
 }

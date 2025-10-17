@@ -24,18 +24,14 @@
             </div>
             <div class="plan-node__details">
                 <template if:true={isEdge}>
-                    <lightning-input type="checkbox" checked={node.isSelected} onchange={handleEdgeCheckboxChange} class="slds-m-right_x-small"></lightning-input>
+                    <lightning-input type="checkbox" checked={node.isSelected} disabled={isDisabled} onchange={handleEdgeCheckboxChange} class={edgeCheckboxClass}></lightning-input>
                 </template>
                 <template if:true={showObjectCheckbox}>
-                    <lightning-input type="checkbox" checked={objectChecked} onchange={handleObjectCheckboxChange} class="slds-m-right_x-small"></lightning-input>
+                    <lightning-input type="checkbox" checked={objectChecked} disabled={isDisabled} onchange={handleObjectCheckboxChange} class={objectCheckboxClass}></lightning-input>
                 </template>
-                <div class="plan-node__label" title={node.label}>{node.label}</div>
-                <template if:true={node.meta}>
-                    <div class="plan-node__meta">{node.meta}</div>
-                </template>
-                <template if:true={node.fieldName}>
-                    <div class="plan-node__meta">via {node.fieldName}</div>
-                </template>
+                <div class="plan-node__label" title={node.label}>
+                    <template if:true={node.seq}><span class="plan-node__seq">{node.seq}.</span></template>{node.label}
+                </div>
             </div>
             <template if:true={isDraggable}>
                 <lightning-icon icon-name="utility:drag_and_drop" size="xx-small" class="plan-node__drag"></lightning-icon>

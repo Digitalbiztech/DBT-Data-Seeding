@@ -48,6 +48,9 @@ export default class ExternalOrgQueryNode extends LightningElement {
             classes.push('plan-node--leaf');
         }
         classes.push(this.isEdge ? 'plan-node--edge' : 'plan-node--object');
+        if (this.node && this.node.lockedByAncestor) {
+            classes.push('plan-node--locked');
+        }
         if (this.isDraggable) {
             classes.push('plan-node--draggable');
         }
@@ -76,6 +79,13 @@ export default class ExternalOrgQueryNode extends LightningElement {
     };
 
     handleEdgeCheckboxChange = (event) => {
+        if (this.node && this.node.lockedByAncestor) {
+            // Prevent toggling when locked by an unchecked ancestor
+            event.preventDefault();
+            event.stopPropagation();
+            event.target.checked = !!this.node.isSelected;
+            return;
+        }
         const checked = !!event.target.checked;
         this.dispatchEvent(
             new CustomEvent('planedgetoggle', {
@@ -105,6 +115,18 @@ export default class ExternalOrgQueryNode extends LightningElement {
             return true;
         };
         return allEdgesSelected(this.node);
+    }
+
+    get isDisabled() {
+        return !!(this.node && this.node.lockedByAncestor);
+    }
+
+    get edgeCheckboxClass() {
+        return `slds-m-right_x-small plan-checkbox ${this.isDisabled ? 'plan-checkbox--locked' : ''}`.trim();
+    }
+
+    get objectCheckboxClass() {
+        return `slds-m-right_x-small plan-checkbox ${this.isDisabled ? 'plan-checkbox--locked' : ''}`.trim();
     }
 
     handleObjectCheckboxChange = (event) => {
