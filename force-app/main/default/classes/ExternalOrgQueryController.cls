@@ -44,8 +44,8 @@ public with sharing class ExternalOrgQueryController {
             this();
             this.objectName = objectName;
             this.fieldName = fieldName;
-        }
     }
+}
 
     @AuraEnabled(cacheable=false)
     public static QueryResultWrapper loginAndQuery(String username, String password, String environment, String soql) {
@@ -524,5 +524,146 @@ public with sharing class ExternalOrgQueryController {
         s = s.replace('"', '&quot;');
         s = s.replace('\'', '&apos;');
         return s;
+    }
+    // =====================
+    // Current-org operations
+    // =====================
+    @AuraEnabled(cacheable=false)
+    public static List<String> getAvailableObjectsCurrent() {
+        List<String> names = new List<String>();
+        Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
+        for (String api : gd.keySet()) {
+            Schema.DescribeSObjectResult d = gd.get(api).getDescribe();
+            if (d.isQueryable()) {
+                names.add(d.getName());
+            }
+        }
+        names.sort();
+        return names;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static QueryResultWrapper queryCurrent(String soql) {
+        if (String.isBlank(soql)) {
+            throw new AuraHandledException('SOQL is required.');
+        }
+        List<SObject> recs = Database.query(soql);
+        QueryResultWrapper wrap = new QueryResultWrapper();
+        wrap.totalSize = recs.size();
+        wrap.done = true;
+        List<Map<String, Object>> rows = new List<Map<String, Object>>();
+        Set<String> allCols = new Set<String>();
+        for (SObject s : recs) {
+            Map<String, Object> row = new Map<String, Object>();
+            Map<String, Object> fields = s.getPopulatedFieldsAsMap();
+            for (String k : fields.keySet()) {
+                row.put(k, fields.get(k));
+                allCols.add(k);
+            }
+            rows.add(row);
+        }
+        List<String> columns = new List<String>(allCols);
+        // Move Id to front if present
+        Boolean hasId = false;
+        for (String c : columns) { if (c == 'Id') { hasId = true; break; } }
+        if (hasId && !columns.isEmpty()) {
+            List<String> reordered = new List<String>();
+            reordered.add('Id');
+            for (String c : columns) { if (c != 'Id') reordered.add(c); }
+            columns = reordered;
+        }
+        wrap.columns = columns;
+        wrap.rows = rows;
+        return wrap;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static DependencyNode getObjectDependenciesCurrent(String objectName, Integer maxDepth, List<String> excludedObjects) {
+        if (String.isBlank(objectName)) {
+            throw new AuraHandledException('objectName is required.');
+        }
+        if (maxDepth == null || maxDepth < 0) maxDepth = 0;
+        if (excludedObjects == null) excludedObjects = new List<String>();
+        Set<String> visited = new Set<String>();
+        Set<String> excluded = new Set<String>(excludedObjects);
+        return buildDependencyTreeCurrent(objectName, visited, maxDepth, excluded, 0);
+    }
+
+    private static DependencyNode buildDependencyTreeCurrent(String objectName, Set<String> visited, Integer maxDepth, Set<String> excluded, Integer currentDepth) {
+        DependencyNode root = new DependencyNode();
+        root.objectName = objectName;
+        root.fieldName = '';
+
+        if (visited.contains(objectName)) return root;
+        visited.add(objectName);
+
+        try {
+            Schema.SObjectType t = Schema.getGlobalDescribe().get(objectName);
+            if (t == null) return root;
+            Schema.DescribeSObjectResult d = t.getDescribe();
+
+            // Only add parents if within depth
+            if (currentDepth < maxDepth) {
+                for (Schema.SObjectField f : d.fields.getMap().values()) {
+                    Schema.DescribeFieldResult fd = f.getDescribe();
+                    if (fd.getType() == Schema.DisplayType.Reference && String.isNotBlank(fd.getRelationshipName())) {
+                        List<Schema.SObjectType> rTo = fd.getReferenceTo();
+                        if (rTo != null && !rTo.isEmpty() && fd.isCreateable()) {
+                            String parentName = rTo[0].getDescribe().getName();
+                            if (!excluded.contains(parentName)) {
+                                DependencyNode parentNode = new DependencyNode(parentName, fd.getName());
+                                parentNode.relationshipType = 'Lookup';
+                                parentNode.isRequired = (!fd.isNillable()) && (!fd.isDefaultedOnCreate());
+                                DependencyNode parentTree = buildDependencyTreeCurrent(parentName, visited, maxDepth, excluded, currentDepth + 1);
+                                if (parentTree != null) {
+                                    parentNode.parents = parentTree.parents;
+                                    parentNode.children = parentTree.children;
+                                }
+                                root.parents.add(parentNode);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Always include immediate child relationships list (not recursing downwards here)
+            for (Schema.ChildRelationship cr : d.getChildRelationships()) {
+                String childName = cr.getChildSObject() != null ? cr.getChildSObject().getDescribe().getName() : null;
+                String fieldName = cr.getField() != null ? cr.getField().getDescribe().getName() : null;
+                if (String.isBlank(childName) || String.isBlank(fieldName)) continue;
+                if (excluded.contains(childName)) continue;
+                DependencyNode childNode = new DependencyNode(childName, fieldName);
+                childNode.relationshipType = 'Child';
+                root.children.add(childNode);
+            }
+        } catch (Exception e) {
+            System.debug('Error building current-org dependency tree for ' + objectName + ': ' + e.getMessage());
+        }
+
+        visited.remove(objectName);
+        return root;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static Map<String, List<String>> getCreateableFieldsCurrent(List<String> objectNames) {
+        Map<String, List<String>> out = new Map<String, List<String>>();
+        if (objectNames == null) return out;
+        Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
+        for (String name : objectNames) {
+            if (String.isBlank(name)) continue;
+            Schema.SObjectType t = gd.get(name);
+            if (t == null) { out.put(name, new List<String>()); continue; }
+            Schema.DescribeSObjectResult d = t.getDescribe();
+            List<String> fields = new List<String>();
+            for (Schema.SObjectField f : d.fields.getMap().values()) {
+                Schema.DescribeFieldResult fd = f.getDescribe();
+                if (fd.isCreateable()) {
+                    fields.add(fd.getName());
+                }
+            }
+            fields.sort();
+            out.put(name, fields);
+        }
+        return out;
     }
 }

@@ -63,3 +63,8 @@
         justify-content: flex-start;
     }
 }
+
+/* Subtle visual cue for sections disabled via current org selection */
+.section-disabled {
+    opacity: 0.6;
+}

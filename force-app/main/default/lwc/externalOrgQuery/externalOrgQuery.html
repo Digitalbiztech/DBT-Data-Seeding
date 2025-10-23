@@ -1,35 +1,102 @@
 <template>
     <lightning-card title="External Org SOQL Runner" icon-name="utility:database">
-        <div class="slds-p-around_medium slds-grid slds-wrap slds-gutters">
-            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                <lightning-input type="text" label="Username" value={username} onchange={handleUsernameChange}></lightning-input>
+        <div class="slds-p-around_medium">
+            <!-- Reverse button -->
+            <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small">
+                <div class="slds-col slds-size_1-of-1 slds-align_absolute-center">
+                    <lightning-button variant="neutral" label="Reverse" onclick={handleReverseOrgs}></lightning-button>
+                </div>
             </div>
-            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                <lightning-input type="password" label="Password" value={password} onchange={handlePasswordChange}></lightning-input>
+
+            <!-- Split Source/Destination -->
+            <div class="slds-grid slds-wrap slds-gutters">
+                <!-- Source Org -->
+                <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                    <h3 class="slds-text-title_caps slds-m-bottom_small">Source Org</h3>
+                    <lightning-combobox
+                        name="sourceUseCurrent"
+                        label="Use Current Org ?"
+                        value={sourceUseCurrent}
+                        options={yesNoOptions}
+                        onchange={handleSourceCurrentPick}
+                    ></lightning-combobox>
+                    <template if:true={isSourceCurrentOrg}>
+                        <div class="slds-text-color_weak slds-text-body_small slds-m-top_xx-small">No login needed. Uses this org’s data.</div>
+                    </template>
+                    <div class={sourceSectionClass}>
+                        <lightning-input type="text" label="Username" value={username} onchange={handleUsernameChange} disabled={isSourceCurrentOrg}></lightning-input>
+                        <lightning-input class="slds-m-top_x-small" type="password" label="Password" value={password} onchange={handlePasswordChange} disabled={isSourceCurrentOrg}></lightning-input>
+                        <lightning-combobox
+                            class="slds-m-top_x-small"
+                            name="environment"
+                            label="Environment"
+                            value={environment}
+                            placeholder="Select Environment"
+                            options={environmentOptions}
+                            onchange={handleEnvironmentChange}
+                            disabled={isSourceCurrentOrg}
+                        ></lightning-combobox>
+                    </div>
+                    <div class="slds-m-top_small">
+                        <template if:false={isSourceCurrentOrg}>
+                            <lightning-button variant="neutral" label="Test Source Connection" onclick={handleTestConnection} if:true={canTestSource}></lightning-button>
+                        </template>
+                    </div>
+                    <template if:true={testMessage}>
+                        <div class="slds-m-top_x-small slds-text-color_success">{testMessage}</div>
+                    </template>
+                </div>
+
+                <!-- Destination Org -->
+                <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                    <h3 class="slds-text-title_caps slds-m-bottom_small">Destination Org</h3>
+                    <lightning-combobox
+                        name="destinationUseCurrent"
+                        label="Use Current Org ?"
+                        value={destUseCurrent}
+                        options={yesNoOptions}
+                        onchange={handleDestinationCurrentPick}
+                    ></lightning-combobox>
+                    <template if:true={isDestinationCurrentOrg}>
+                        <div class="slds-text-color_weak slds-text-body_small slds-m-top_xx-small">No login needed. Uses this org’s data.</div>
+                    </template>
+                    <div class={destinationSectionClass}>
+                        <lightning-input type="text" label="Username" value={destUsername} onchange={handleDestUsernameChange} disabled={isDestinationCurrentOrg}></lightning-input>
+                        <lightning-input class="slds-m-top_x-small" type="password" label="Password" value={destPassword} onchange={handleDestPasswordChange} disabled={isDestinationCurrentOrg}></lightning-input>
+                        <lightning-combobox
+                            class="slds-m-top_x-small"
+                            name="destEnvironment"
+                            label="Environment"
+                            value={destEnvironment}
+                            placeholder="Select Environment"
+                            options={environmentOptions}
+                            onchange={handleDestEnvironmentChange}
+                            disabled={isDestinationCurrentOrg}
+                        ></lightning-combobox>
+                    </div>
+                    <div class="slds-m-top_small">
+                        <template if:false={isDestinationCurrentOrg}>
+                            <lightning-button variant="neutral" label="Test Destination Connection" onclick={handleTestConnectionDestination} if:true={canTestDestination}></lightning-button>
+                        </template>
+                    </div>
+                    <template if:true={destTestMessage}>
+                        <div class="slds-m-top_x-small">{destTestMessage}</div>
+                    </template>
+                </div>
             </div>
-            <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                <lightning-combobox
-                    name="environment"
-                    label="Environment"
-                    value={environment}
-                    placeholder="Select Environment"
-                    options={environmentOptions}
-                    onchange={handleEnvironmentChange}
-                ></lightning-combobox>
-            </div>
-            <div class="slds-col slds-size_1-of-1">
-                <lightning-textarea label="SOQL" value={soql} onchange={handleSoqlChange} placeholder="SELECT Id, Name FROM Account LIMIT 10"></lightning-textarea>
-            </div>
-            <div class="slds-col slds-size_1-of-1">
-                <lightning-button class="slds-m-right_small" variant="neutral" label="Test Connection" onclick={handleTestConnection} if:true={showTestButton}></lightning-button>
-                <lightning-button variant="brand" label="Run Query" onclick={handleRunQuery} disabled={isRunDisabled}></lightning-button>
-            </div>
+
+            <!-- SOQL + Run Query appear only after Source connection -->
+            <template if:true={isSourceConnected}>
+                <div class="slds-m-top_large">
+                    <lightning-textarea label="SOQL" value={soql} onchange={handleSoqlChange} placeholder="SELECT Id, Name FROM Account LIMIT 10"></lightning-textarea>
+                    <div class="slds-m-top_small">
+                        <lightning-button variant="brand" label="Run Query" onclick={handleRunQuery} disabled={isRunDisabled}></lightning-button>
+                    </div>
+                </div>
+            </template>
         </div>
         <template if:true={error}>
             <div class="slds-p-horizontal_medium slds-text-color_error">{error}</div>
-        </template>
-        <template if:true={testMessage}>
-            <div class="slds-p-horizontal_medium slds-text-color_success">{testMessage}</div>
         </template>
 
         <!-- Object Selection Section -->
@@ -56,7 +123,7 @@
                                 type="number" 
                                 label="Max Depth" 
                                 value={maxDepth}
-                                min="1"
+                                min="0"
                                 max="10"
                                 onchange={handleDepthChange}
                             ></lightning-input>
@@ -170,12 +237,7 @@
                 </div>
             </div>
         </template>
-        <template if:true={hasResults}>
-            <div class="slds-p-around_medium">
-                <lightning-datatable key-field="key" data={rows} columns={columns} hide-checkbox-column>
-                </lightning-datatable>
-            </div>
-        </template>
+        
     </lightning-card>
 </template>
 

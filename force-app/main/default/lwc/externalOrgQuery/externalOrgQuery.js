@@ -1,23 +1,34 @@
 import { LightningElement, track } from 'lwc';
-import loginAndQuery from '@salesforce/apex/ExternalOrgQueryController.loginAndQuery';
 import testConnection from '@salesforce/apex/ExternalOrgQueryController.testConnection';
 import getAvailableObjects from '@salesforce/apex/ExternalOrgQueryController.getAvailableObjects';
 import getObjectDependencies from '@salesforce/apex/ExternalOrgQueryController.getObjectDependencies';
 import getCreateableFields from '@salesforce/apex/ExternalOrgQueryController.getCreateableFields';
 import queryWithSession from '@salesforce/apex/ExternalOrgQueryController.queryWithSession';
+import getAvailableObjectsCurrent from '@salesforce/apex/ExternalOrgQueryController.getAvailableObjectsCurrent';
+import getObjectDependenciesCurrent from '@salesforce/apex/ExternalOrgQueryController.getObjectDependenciesCurrent';
+import getCreateableFieldsCurrent from '@salesforce/apex/ExternalOrgQueryController.getCreateableFieldsCurrent';
+import queryCurrent from '@salesforce/apex/ExternalOrgQueryController.queryCurrent';
 
 export default class ExternalOrgQuery extends LightningElement {
     // UI state for external org connection and query execution
+    // Source org (kept as existing fields for compatibility)
     @track username = 'ayannbhunia@gmail.com.dbtd3'; // for testing, will remove later
     @track password = 'aYANbHUNIA1234!UwlqVpYeKSapeeHia8ecxJk5'; // for testing, will remove later
     @track environment = 'Production';
-    @track soql = '';
-    @track columns = [];
-    @track rows = [];
-    @track error;
     @track testMessage;
     @track sessionId;
     @track instanceUrl;
+
+    // Destination org (new, stored separately)
+    @track destUsername = '';
+    @track destPassword = '';
+    @track destEnvironment = 'Production';
+    @track destTestMessage;
+    @track destSessionId;
+    @track destInstanceUrl;
+    @track soql = '';
+    // Removed table results; we no longer build datatable
+    @track error;
     @track availableObjects = [];
     @track selectedObject;
     @track dependencyTree;
@@ -30,9 +41,17 @@ export default class ExternalOrgQuery extends LightningElement {
     @track exportOrder = [];
     @track lastQueriedIdSnapshot;
     isLoading = false;
+    // One-shot flags to suppress onchange after manual deselect click
+    _suppressSourceChangeOnce = false;
+    _suppressDestChangeOnce = false;
 
     planEdges = new Map();
     lastQueriedIdSets = new Map();
+    // Picklist state for current-org selection
+    @track sourceUseCurrent = 'no';
+    @track destUseCurrent = 'no';
+    // Lightweight console logger
+    debug = (...args) => { try { console.log('[ExternalOrgQuery]', ...args); } catch (e) { /* no-op */ } };
 
     get environmentOptions() {
         // Environment options for login host selection
@@ -42,16 +61,33 @@ export default class ExternalOrgQuery extends LightningElement {
         ];
     }
 
-    get hasResults() {
-        return this.rows && this.rows.length > 0;
+    get yesNoOptions() {
+        return [
+            { label: 'Yes', value: 'yes' },
+            { label: 'No', value: 'no' }
+        ];
+    }
+
+    // Connection state + button gating
+    get isSourceConnected() {
+        return this.isSourceCurrentOrg || !!(this.sessionId && this.instanceUrl);
+    }
+
+    get isDestinationConnected() {
+        return this.isDestinationCurrentOrg || !!(this.destSessionId && this.destInstanceUrl);
     }
 
     get isRunDisabled() {
-        return !this.username || !this.password || !this.soql || this.isLoading;
+        // Disable until source connected, SOQL present, and object picklist loaded
+        return !this.isSourceConnected || !this.soql || !this.showObjectPicker || this.isLoading;
     }
-    
-    get showTestButton() {
+
+    get canTestSource() {
         return !!this.username && !!this.password && !this.isLoading;
+    }
+
+    get canTestDestination() {
+        return !!this.destUsername && !!this.destPassword && !this.isLoading;
     }
 
     get objectOptions() {
@@ -107,19 +143,159 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     // Simple getter methods for template
-    handleUsernameChange = (event) => { this.username = event.target.value; this.testMessage = undefined; this.error = undefined; this.resetObjectSelection(); console.log('Username updated'); };
-    handlePasswordChange = (event) => { this.password = event.target.value; this.testMessage = undefined; this.error = undefined; this.resetObjectSelection(); console.log('Password updated'); };
-    handleEnvironmentChange = (event) => { this.environment = event.detail.value; };
+    handleUsernameChange = (event) => { this.username = event.target.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); console.log('Username updated'); };
+    handlePasswordChange = (event) => { this.password = event.target.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); console.log('Password updated'); };
+    handleEnvironmentChange = (event) => { this.environment = event.detail.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); };
     handleSoqlChange = (event) => { this.soql = event.target.value; };
     handleObjectChange = (event) => { this.selectedObject = event.detail.value; this.dependencyTree = undefined; };
-    handleDepthChange = (event) => { this.maxDepth = parseInt(event.target.value) || 3; this.dependencyTree = undefined; };
+    
+    // Destination input handlers
+    handleDestUsernameChange = (event) => { this.destUsername = event.target.value; this.destTestMessage = undefined; };
+    handleDestPasswordChange = (event) => { this.destPassword = event.target.value; this.destTestMessage = undefined; };
+    handleDestEnvironmentChange = (event) => { this.destEnvironment = event.detail.value; this.destTestMessage = undefined; };
+    handleDepthChange = (event) => {
+        const raw = parseInt(event.target.value, 10);
+        const safe = Number.isFinite(raw) && raw >= 0 ? raw : 0;
+        this.maxDepth = safe;
+        this.dependencyTree = undefined;
+    };
+
+    // New picklist handlers to centralize YES/NO and keep Source/Destination synchronized
+    handleSourceCurrentPick = (event) => {
+        const val = (event && event.detail && event.detail.value) || 'no';
+        this.sourceUseCurrent = val;
+        if (val === 'yes') {
+            // Force destination to NO
+            this.destUseCurrent = 'no';
+            this.currentOrgFor = 'source';
+            this.destTestMessage = undefined;
+            // Switch to current-org for source: reset external session/UI and load objects
+            this.clearSourceSession();
+            this.resetObjectSelection();
+            this.fetchAvailableObjectsSource();
+        } else {
+            // Turning off current org for source
+            if (this.isSourceCurrentOrg) {
+                this.currentOrgFor = this.destUseCurrent === 'yes' ? 'destination' : '';
+            }
+            this.clearSourceSession();
+            this.resetObjectSelection();
+        }
+    };
+
+    handleDestinationCurrentPick = (event) => {
+        const val = (event && event.detail && event.detail.value) || 'no';
+        this.destUseCurrent = val;
+        if (val === 'yes') {
+            // Force source to NO
+            this.sourceUseCurrent = 'no';
+            this.currentOrgFor = 'destination';
+            // Clear destination external session as we are using current org
+            this.destSessionId = undefined;
+            this.destInstanceUrl = undefined;
+            this.destTestMessage = undefined;
+        } else {
+            // Turning off current org for destination
+            if (this.isDestinationCurrentOrg) {
+                this.currentOrgFor = this.sourceUseCurrent === 'yes' ? 'source' : '';
+            }
+        }
+    };
+
+    // Helper utilities to centralize connection routing
+    isSourceCurrent() { return this.isSourceCurrentOrg; }
+    isDestinationCurrent() { return this.isDestinationCurrentOrg; }
+    ensureSourceConnected(message = 'Please test connection first') {
+        if (this.isSourceCurrentOrg) return true;
+        if (this.sessionId && this.instanceUrl) return true;
+        this.error = message;
+        return false;
+    }
+    ensureDestinationConnected(message = 'Please test connection first') {
+        if (this.isDestinationCurrentOrg) return true;
+        if (this.destSessionId && this.destInstanceUrl) return true;
+        this.error = message;
+        return false;
+    }
+    routeSourceCall(fnCurrent, fnSession) {
+        return this.isSourceCurrentOrg ? fnCurrent() : fnSession();
+    }
+    routeDestinationCall(fnCurrent, fnSession) {
+        return this.isDestinationCurrentOrg ? fnCurrent() : fnSession();
+    }
     handleExcludedObjectsChange = (event) => { this.excludedObjects = event.detail.value || []; this.dependencyTree = undefined; };
     handleSelectStandardObjects = () => { this.excludedObjects = this.standardObjects; this.dependencyTree = undefined; };
     handleSelectCustomObjects = () => { this.excludedObjects = this.customObjects; this.dependencyTree = undefined; };
     handleClearExclusions = () => { this.excludedObjects = []; this.dependencyTree = undefined; };
 
+    // Current Org selection state
+    @track currentOrgFor = '';
+    get isSourceCurrentOrg() { return this.currentOrgFor === 'source'; }
+    get isDestinationCurrentOrg() { return this.currentOrgFor === 'destination'; }
+    get sourceSectionClass() { return this.isSourceCurrentOrg ? 'section-disabled' : ''; }
+    get destinationSectionClass() { return this.isDestinationCurrentOrg ? 'section-disabled' : ''; }
+    handleSelectSourceCurrent = () => {
+        if (this._suppressSourceChangeOnce) {
+            this._suppressSourceChangeOnce = false;
+            return;
+        }
+        if (!this.isSourceCurrentOrg) {
+            this.currentOrgFor = 'source';
+            this.sourceUseCurrent = 'yes';
+            this.destUseCurrent = 'no';
+            this.destTestMessage = undefined;
+            // Clear any external source session and fetch current org objects
+            this.clearSourceSession();
+            this.resetObjectSelection();
+            this.fetchAvailableObjectsSource();
+        }
+    };
+    handleSelectDestinationCurrent = () => {
+        if (this._suppressDestChangeOnce) {
+            this._suppressDestChangeOnce = false;
+            return;
+        }
+        if (!this.isDestinationCurrentOrg) {
+            this.currentOrgFor = 'destination';
+            this.sourceUseCurrent = 'no';
+            this.destUseCurrent = 'yes';
+            // Clear destination external session
+            this.destSessionId = undefined;
+            this.destInstanceUrl = undefined;
+            this.destTestMessage = undefined;
+        }
+    };
+
+    // Allow unselecting the currently selected radio by clicking it again
+    handleToggleSourceCurrent = (event) => {
+        try { event && event.stopPropagation && event.stopPropagation(); } catch (e) { /* no-op */ }
+        if (this.isSourceCurrentOrg) {
+            // Suppress the immediate onchange that lightning-input may fire
+            this._suppressSourceChangeOnce = true;
+            // Unselect current-org for source
+            this.currentOrgFor = '';
+            // Reset UI that depends on source connection/object list
+            this.clearSourceSession();
+            this.resetObjectSelection();
+        }
+        // If not selected, normal onchange will handle selecting it
+    };
+
+    handleToggleDestinationCurrent = (event) => {
+        try { event && event.stopPropagation && event.stopPropagation(); } catch (e) { /* no-op */ }
+        if (this.isDestinationCurrentOrg) {
+            // Suppress the immediate onchange that lightning-input may fire
+            this._suppressDestChangeOnce = true;
+            // Unselect current-org for destination
+            this.currentOrgFor = '';
+            // No additional cleanup needed for destination beyond UI state
+        }
+        // If not selected, normal onchange will handle selecting it
+    };
+
     get hasPlan() {
-        return this.planReady && this.planRoot && Array.isArray(this.planRoot.children) && this.planRoot.children.length > 0;
+        // Consider a plan valid if we built a root node, even with no edges
+        return this.planReady && !!this.planRoot;
     }
 
     get canShowPlanControls() {
@@ -343,12 +519,13 @@ export default class ExternalOrgQuery extends LightningElement {
                 draggable: true,
                 children: []
             };
-            if (visited.has(`${pathKey}|${objectName}`)) {
+            // Prevent cycles: if this object is already in the current path, stop here
+            if (visited.has(objectName)) {
                 node.isLeaf = true;
                 return node;
             }
             const nextVisited = new Set(visited);
-            nextVisited.add(`${pathKey}|${objectName}`);
+            nextVisited.add(objectName);
             const edges = edgesByObject.get(objectName) || [];
             edges.forEach((e, idx) => {
                 const edgeNode = buildEdgeNode(objectName, e, `${pathKey}e${idx}`, depth + 1, nextVisited, idx + 1);
@@ -383,32 +560,94 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     async handleRunQuery() {
+        // Now only parses SOQL and updates object/limit; no data fetching
         this.error = undefined;
         this.testMessage = undefined;
-        this.isLoading = true;
-        try {
-            console.log('Calling Apex loginAndQuery');
-            const result = await loginAndQuery({
-                username: this.username,
-                password: this.password,
-                environment: this.environment,
-                soql: this.soql
-            });
-
-            const cols = (result.columns || []).map((c) => ({ label: c, fieldName: c }));
-            const data = (result.rows || []).map((row, idx) => ({ key: row.Id || idx.toString(), ...row }));
-
-            this.columns = cols;
-            this.rows = data;
-            console.log('Query success. Rows:', this.rows.length);
-        } catch (e) {
-            this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Unknown error');
-            console.error('Query error', this.error);
-            this.rows = [];
-            this.columns = [];
-        } finally {
-            this.isLoading = false;
+        this.debug('Run Query clicked', {
+            isSourceConnected: this.isSourceConnected,
+            showObjectPicker: this.showObjectPicker,
+            isLoading: this.isLoading,
+            soqlPreview: (this.soql || '').slice(0, 120)
+        });
+        if (!this.isSourceConnected) {
+            this.error = 'Please test Source connection first';
+            this.debug('Blocked: source not connected');
+            return;
         }
+        if (!this.showObjectPicker) {
+            this.debug('Blocked: object picklist not loaded yet');
+        }
+        try {
+            const parsed = this.parseSoql(this.soql || '');
+            if (parsed && parsed.objectName) {
+                const obj = parsed.objectName;
+                const match = this.findAvailableObjectMatch(obj);
+                if (match) {
+                    this.selectedObject = match;
+                    this.dependencyTree = undefined;
+                    this.debug('Selected object set from SOQL (matched):', this.selectedObject);
+                } else {
+                    const msg = `Object \"${obj}\" not found in available objects`;
+                    this.error = msg;
+                    this.debug('SOQL object match error:', msg);
+                }
+            }
+            if (parsed && Number.isFinite(parsed.limit)) {
+                this.exportLimit = parsed.limit;
+                // limit set from query LIMIT clause
+                }
+        } catch (parseErr) {
+            this.error = parseErr && parseErr.message ? parseErr.message : 'Failed to parse SOQL';
+        }
+    }
+
+    parseSoql(soql) {
+        const text = (soql || '').trim();
+        if (!text) {
+            throw new Error('SOQL is empty');
+        }
+        const fromMatch = text.match(/\bfrom\s+([a-zA-Z0-9_]+)/i);
+        if (!fromMatch || !fromMatch[1]) {
+            throw new Error('Unable to detect object name after FROM');
+        }
+        const objectName = fromMatch[1];
+        let limit;
+        const limMatch = text.match(/\blimit\s+(\d+)/i);
+        if (limMatch && limMatch[1]) {
+            const n = parseInt(limMatch[1], 10);
+            if (!Number.isFinite(n)) {
+                throw new Error('Invalid LIMIT value');
+            }
+            limit = n;
+        }
+        return { objectName, limit };
+    }
+
+    stripNamespace(name) {
+        const n = (name || '').trim();
+        // Remove leading package namespace prefix like ns__
+        return n.replace(/^[a-zA-Z0-9]+__/, '');
+    }
+
+    normalizeName(name) {
+        return (name || '').toLowerCase();
+    }
+
+    findAvailableObjectMatch(objName) {
+        const list = Array.isArray(this.availableObjects) ? this.availableObjects : [];
+        const objLower = this.normalizeName(objName);
+        // 1) direct case-insensitive match
+        const direct = list.find(o => this.normalizeName(o) === objLower);
+        if (direct) return direct;
+        // 2) suffix exact match (case-insensitive)
+        const suffix = this.normalizeName(this.stripNamespace(objName));
+        const exactSuffix = list.find(o => this.normalizeName(o) === suffix);
+        if (exactSuffix) return exactSuffix;
+        // 3) namespaced mapping by comparing stripped names case-insensitively
+        const candidates = list.filter(o => this.normalizeName(this.stripNamespace(o)) === suffix);
+        if (candidates.length === 1) return candidates[0];
+        // ambiguous or none => no match
+        return null;
     }
 
     async handleTestConnection() {
@@ -416,7 +655,7 @@ export default class ExternalOrgQuery extends LightningElement {
         this.testMessage = undefined;
         this.isLoading = true;
         try {
-            console.log('Calling Apex testConnection');
+            this.debug('Calling Apex testConnection (source)', { username: this.username, environment: this.environment });
             const res = await testConnection({
                 username: this.username,
                 password: this.password,
@@ -431,39 +670,74 @@ export default class ExternalOrgQuery extends LightningElement {
                 this.instanceUrl = res.instanceUrl;
                 
                 // Automatically fetch available objects
-                await this.fetchAvailableObjects();
+                await this.fetchAvailableObjectsSource();
                 
-                console.log('Connection test successful');
+                this.debug('Connection test successful (source)');
             } else {
                 this.error = (res && res.message) ? res.message : 'Connection failed';
-                console.error('Connection test failed', this.error);
+                this.debug('Connection test failed (source)', this.error);
             }
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Unknown error');
-            console.error('Connection test error', this.error);
+            this.debug('Connection test error (source)', this.error);
         } finally {
             this.isLoading = false;
         }
     }
 
-    async fetchAvailableObjects() {
-        if (!this.sessionId || !this.instanceUrl) {
-            console.error('SessionId or instanceUrl not available');
+    async handleTestConnectionDestination() {
+        // Destination connection test: only display result, store separately
+        this.destTestMessage = undefined;
+        const credsMissing = !this.destUsername || !this.destPassword;
+        if (credsMissing) {
+            this.destTestMessage = 'Please provide Destination Username and Password';
             return;
         }
-
+        this.isLoading = true;
         try {
-            console.log('Fetching available objects');
-            const objects = await getAvailableObjects({
-                sessionId: this.sessionId,
-                instanceUrl: this.instanceUrl
+            this.debug('Calling Apex testConnection (destination)', { username: this.destUsername, environment: this.destEnvironment });
+            const res = await testConnection({
+                username: this.destUsername,
+                password: this.destPassword,
+                environment: this.destEnvironment
             });
+            if (res && res.success) {
+                const instance = res.instanceUrl ? ` (${res.instanceUrl})` : '';
+                this.destTestMessage = `Connection successful${instance}`;
+                this.destSessionId = res.sessionId;
+                this.destInstanceUrl = res.instanceUrl;
+            } else {
+                this.destTestMessage = (res && res.message) ? `Connection failed: ${res.message}` : 'Connection failed';
+            }
+        } catch (e) {
+            const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Unknown error');
+            this.destTestMessage = `Connection failed: ${msg}`;
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    // Unified object list fetch using current-org or session based on source mode
+    async fetchAvailableObjectsSource() {
+        try {
+            this.debug('Fetching available objects (source, routed)');
+            const objects = await this.routeSourceCall(
+                () => getAvailableObjectsCurrent(),
+                () => {
+                    if (!this.sessionId || !this.instanceUrl) {
+                        this.debug('No session available for external object fetch');
+                        return [];
+                    }
+                    return getAvailableObjects({ sessionId: this.sessionId, instanceUrl: this.instanceUrl });
+                }
+            );
             this.availableObjects = objects || [];
             this.showObjectPicker = true;
-            console.log('Fetched objects:', this.availableObjects.length);
+            try { this.excludedObjects = this.standardObjects; } catch (e) { /* no-op */ }
+            this.debug('Fetched objects count', (this.availableObjects && this.availableObjects.length) || 0);
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Failed to fetch objects');
-            console.error('Error fetching objects', this.error);
+            this.debug('Error fetching objects', this.error);
         }
     }
 
@@ -473,11 +747,10 @@ export default class ExternalOrgQuery extends LightningElement {
     };
 
     async runQueryWithSession(soql) {
-        return queryWithSession({
-            sessionId: this.sessionId,
-            instanceUrl: this.instanceUrl,
-            soql
-        });
+        return this.routeSourceCall(
+            () => queryCurrent({ soql }),
+            () => queryWithSession({ sessionId: this.sessionId, instanceUrl: this.instanceUrl, soql })
+        );
     }
 
     get hasExportOrder() {
@@ -485,8 +758,7 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     async handleExport() {
-        if (!this.sessionId || !this.instanceUrl) {
-            this.error = 'Please test connection first';
+        if (!this.ensureSourceConnected('Please test connection first')) {
             return;
         }
         if (!this.hasPlan || !this.hasExportOrder) {
@@ -688,7 +960,7 @@ export default class ExternalOrgQuery extends LightningElement {
             }
         }
         const candidates = order.filter((objectName) => !referencedAsTarget.has(objectName));
-        // Only bootstrap objects that still have selected outgoing edges
+        // Prefer to bootstrap objects that still have selected outgoing edges
         const withEdges = candidates.filter((obj) => {
             const edges = edgesByObject.get(obj) || [];
             return edges.length > 0;
@@ -696,7 +968,9 @@ export default class ExternalOrgQuery extends LightningElement {
         if (withEdges.length) {
             return withEdges;
         }
-        return [];
+        // If none have edges (e.g., depth 0 or a leaf/root-only export),
+        // bootstrap the first object in the order (root prioritized in order)
+        return [order[0]];
     }
 
     async queryAndProcess(objectName, options, edgesByObject, queried, pending) {
@@ -723,10 +997,7 @@ export default class ExternalOrgQuery extends LightningElement {
                 await this.processQueryRows(objectName, soql, edges, queried, pending);
             }
         } else {
-            // Bootstrap query: only run if there are selected outgoing edges
-            if (fieldList.length === 0) {
-                return; // no selected paths from this object; skip bootstrapping it
-            }
+            // Bootstrap query: even if there are no selected outgoing edges, we still need Ids
             const soql = `SELECT ${selectClause} FROM ${objectName} LIMIT ${options.limit}`;
             await this.processQueryRows(objectName, soql, edges, queried, pending);
         }
@@ -783,8 +1054,7 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     async handleFinalExport() {
-        if (!this.sessionId || !this.instanceUrl) {
-            this.error = 'Please test connection first';
+        if (!this.ensureSourceConnected('Please test connection first')) {
             return;
         }
         if (!this.lastQueriedIdSets || this.lastQueriedIdSets.size === 0) {
@@ -803,11 +1073,10 @@ export default class ExternalOrgQuery extends LightningElement {
         this.error = undefined;
         try {
             this.isLoading = true;
-            const creatableMap = await getCreateableFields({
-                sessionId: this.sessionId,
-                instanceUrl: this.instanceUrl,
-                objectNames: objectsWithIds
-            });
+            const creatableMap = await this.routeSourceCall(
+                () => getCreateableFieldsCurrent({ objectNames: objectsWithIds }),
+                () => getCreateableFields({ sessionId: this.sessionId, instanceUrl: this.instanceUrl, objectNames: objectsWithIds })
+            );
 
             const queries = [];
             for (const objectName of objectsWithIds) {
@@ -903,8 +1172,12 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     async handleCheckPlan() {
-        if (!this.selectedObject || !this.sessionId || !this.instanceUrl) {
+        // Require an object, and if using external session, require a tested connection
+        if (!this.selectedObject) {
             this.error = 'Please select an object and ensure connection is established';
+            return;
+        }
+        if (!this.ensureSourceConnected('Please select an object and ensure connection is established')) {
             return;
         }
 
@@ -913,15 +1186,26 @@ export default class ExternalOrgQuery extends LightningElement {
 
         try {
             console.log('Checking dependencies for:', this.selectedObject, 'with depth:', this.maxDepth, 'excluding:', this.excludedObjects);
-            const dependencies = await getObjectDependencies({
-                sessionId: this.sessionId,
-                instanceUrl: this.instanceUrl,
-                objectName: this.selectedObject,
-                maxDepth: this.maxDepth,
-                excludedObjects: this.excludedObjects
-            });
-            this.dependencyTree = dependencies;
-            this.buildPlanState(dependencies);
+            const paramsCurrent = { objectName: this.selectedObject, maxDepth: this.maxDepth, excludedObjects: this.excludedObjects };
+            const paramsSession = { sessionId: this.sessionId, instanceUrl: this.instanceUrl, objectName: this.selectedObject, maxDepth: this.maxDepth, excludedObjects: this.excludedObjects };
+            const dependencies = await this.routeSourceCall(
+                () => getObjectDependenciesCurrent(paramsCurrent),
+                () => getObjectDependencies(paramsSession)
+            );
+            // Fallback: if no dependencies returned, build a minimal tree with only the selected object
+            const dep = dependencies || { objectName: this.selectedObject, parents: [] };
+            this.dependencyTree = dep;
+            this.buildPlanState(dep);
+            // Collapse all nodes initially after building the plan,
+            // then re-open the root so only descendants are collapsed
+            try {
+                this.handleCollapseAll();
+                if (this.planRoot) {
+                    const clone = this.clonePlanNode(this.planRoot);
+                    clone.isCollapsed = false;
+                    this.planRoot = clone;
+                }
+            } catch (e) { /* no-op */ }
             console.log(JSON.stringify({ type: 'EXPORT_PLAN', root: this.selectedObject, order: this.exportOrder }, null, 2));
             
             console.log('Dependencies retrieved:', dependencies);
@@ -954,6 +1238,50 @@ export default class ExternalOrgQuery extends LightningElement {
         this.lastQueriedIdSets = new Map();
         this.lastQueriedIdSnapshot = undefined;
     }
+
+    clearSourceSession() {
+        this.sessionId = undefined;
+        this.instanceUrl = undefined;
+        this.testMessage = undefined;
+    }
+
+    handleReverseOrgs = () => {
+        // Swap credentials and environments between Source and Destination
+        this.debug('Reversing orgs');
+        const sU = this.username;
+        const sP = this.password;
+        const sE = this.environment;
+
+        this.username = this.destUsername || '';
+        this.password = this.destPassword || '';
+        this.environment = this.destEnvironment || 'Production';
+
+        this.destUsername = sU || '';
+        this.destPassword = sP || '';
+        this.destEnvironment = sE || 'Production';
+
+        // Swap current-org selection if set
+        if (this.currentOrgFor === 'source') {
+            this.currentOrgFor = 'destination';
+        } else if (this.currentOrgFor === 'destination') {
+            this.currentOrgFor = 'source';
+        }
+
+        // Clear connection states and UI dependent on source
+        this.clearSourceSession();
+        this.destSessionId = undefined;
+        this.destInstanceUrl = undefined;
+        this.destTestMessage = undefined;
+        this.error = undefined;
+        this.resetObjectSelection();
+        // If source is now current org, prefetch objects
+        if (this.isSourceCurrentOrg) {
+            this.fetchAvailableObjectsSource();
+        }
+        // Sync the picklist UI to reflect currentOrgFor
+        this.sourceUseCurrent = this.isSourceCurrentOrg ? 'yes' : 'no';
+        this.destUseCurrent = this.isDestinationCurrentOrg ? 'yes' : 'no';
+    };
 }
 
 
