@@ -40,6 +40,7 @@ export default class ExternalOrgQuery extends LightningElement {
     @track exportLimit = 50;
     @track exportOrder = [];
     @track lastQueriedIdSnapshot;
+    @track finalExportQueries = [];
     isLoading = false;
     // One-shot flags to suppress onchange after manual deselect click
     _suppressSourceChangeOnce = false;
@@ -311,7 +312,8 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     get isFinalExportDisabled() {
-        return this.isExportDisabled || !this.hasCollectedIds;
+        const destConnected = this.isDestinationCurrentOrg || (!!this.destSessionId && !!this.destInstanceUrl);
+        return this.isExportDisabled || !this.hasCollectedIds || !destConnected;
     }
 
     handlePlanNodeToggle = (event) => {
@@ -1054,7 +1056,12 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     async handleFinalExport() {
+        // Require source connectivity for schema discovery if not current org
         if (!this.ensureSourceConnected('Please test connection first')) {
+            return;
+        }
+        // Destination must be connected (either as current org or tested external session)
+        if (!this.ensureDestinationConnected('Please test destination connection first')) {
             return;
         }
         if (!this.lastQueriedIdSets || this.lastQueriedIdSets.size === 0) {
@@ -1073,30 +1080,40 @@ export default class ExternalOrgQuery extends LightningElement {
         this.error = undefined;
         try {
             this.isLoading = true;
-            const creatableMap = await this.routeSourceCall(
+
+            // Get creatable fields from source and destination for intersection
+            const sourceCreatableMap = await this.routeSourceCall(
                 () => getCreateableFieldsCurrent({ objectNames: objectsWithIds }),
                 () => getCreateableFields({ sessionId: this.sessionId, instanceUrl: this.instanceUrl, objectNames: objectsWithIds })
             );
+            const destCreatableMap = await this.routeDestinationCall(
+                () => getCreateableFieldsCurrent({ objectNames: objectsWithIds }),
+                () => getCreateableFields({ sessionId: this.destSessionId, instanceUrl: this.destInstanceUrl, objectNames: objectsWithIds })
+            );
 
+            // Iterate bottom-to-top of export order (reverse order)
+            const iterationOrder = objectsWithIds.slice().reverse();
             const queries = [];
-            for (const objectName of objectsWithIds) {
+            for (const objectName of iterationOrder) {
                 const ids = Array.from(this.lastQueriedIdSets.get(objectName) || []);
-                if (!ids.length) {
-                    continue;
-                }
-                const fields = (creatableMap && creatableMap[objectName]) || [];
-                const uniqueFields = ['Id', ...fields.filter((field) => field && field !== 'Id')];
+                if (!ids.length) continue;
+
+                const srcFields = (sourceCreatableMap && sourceCreatableMap[objectName]) || [];
+                const dstFields = (destCreatableMap && destCreatableMap[objectName]) || [];
+                const dstSet = new Set(dstFields);
+                const intersect = srcFields.filter((f) => f && f !== 'Id' && dstSet.has(f));
+                const uniqueFields = ['Id', ...intersect];
                 const selectClause = uniqueFields.join(', ');
+
                 for (const batch of this.chunkArray(ids, 200)) {
                     const where = batch.filter(Boolean).map((id) => `'${id.replace(/'/g, "\\'")}'`).join(',');
-                    if (!where) {
-                        continue;
-                    }
+                    if (!where) continue;
                     const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
-                    queries.push({ objectName, count: batch.length, soql });
+                    queries.push({ objectName, count: batch.length, soql, fields: uniqueFields });
                 }
             }
 
+            this.finalExportQueries = queries;
             console.log(JSON.stringify({ type: 'FINAL_EXPORT_SOQL', queries }, null, 2));
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Failed to build final export queries');
