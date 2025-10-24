@@ -666,4 +666,63 @@ public with sharing class ExternalOrgQueryController {
         }
         return out;
     }
+
+    // Simple current-org insert support used by LWC Start Import
+    public class InsertMapping {
+        @AuraEnabled public String oldId;
+        @AuraEnabled public String newId;
+        @AuraEnabled public Boolean success;
+        @AuraEnabled public String errorMessage;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static List<InsertMapping> insertRecordsCurrent(String objectName, List<Map<String, Object>> records) {
+        if (String.isBlank(objectName)) {
+            throw new AuraHandledException('objectName is required');
+        }
+        List<InsertMapping> out = new List<InsertMapping>();
+        if (records == null || records.isEmpty()) {
+            return out;
+        }
+        Schema.SObjectType t = Schema.getGlobalDescribe().get(objectName);
+        if (t == null) {
+            throw new AuraHandledException('Unknown sObject: ' + objectName);
+        }
+        List<SObject> toInsert = new List<SObject>();
+        List<String> oldIds = new List<String>();
+        for (Map<String, Object> rec : records) {
+            if (rec == null) continue;
+            SObject sobj = t.newSObject();
+            String oldId = (rec.containsKey('Id') && rec.get('Id') != null) ? String.valueOf(rec.get('Id')) : null;
+            oldIds.add(oldId);
+            for (String key : rec.keySet()) {
+                if (key == 'Id') continue; // never attempt to set Id on insert
+                try {
+                    sobj.put(key, rec.get(key));
+                } catch (Exception e) {
+                    // Ignore fields that do not exist or cannot be set
+                }
+            }
+            toInsert.add(sobj);
+        }
+        Database.SaveResult[] results = Database.insert(toInsert, false);
+        for (Integer i = 0; i < results.size(); i++) {
+            InsertMapping m = new InsertMapping();
+            m.oldId = i < oldIds.size() ? oldIds[i] : null;
+            Database.SaveResult sr = results[i];
+            if (sr.isSuccess()) {
+                m.success = true;
+                m.newId = (String) sr.getId();
+            } else {
+                m.success = false;
+                if (sr.getErrors() != null && sr.getErrors().size() > 0) {
+                    m.errorMessage = sr.getErrors()[0].getMessage();
+                } else {
+                    m.errorMessage = 'Unknown DML error';
+                }
+            }
+            out.add(m);
+        }
+        return out;
+    }
 }

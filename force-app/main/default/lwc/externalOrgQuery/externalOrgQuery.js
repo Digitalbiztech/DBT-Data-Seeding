@@ -8,6 +8,7 @@ import getAvailableObjectsCurrent from '@salesforce/apex/ExternalOrgQueryControl
 import getObjectDependenciesCurrent from '@salesforce/apex/ExternalOrgQueryController.getObjectDependenciesCurrent';
 import getCreateableFieldsCurrent from '@salesforce/apex/ExternalOrgQueryController.getCreateableFieldsCurrent';
 import queryCurrent from '@salesforce/apex/ExternalOrgQueryController.queryCurrent';
+import insertRecordsCurrent from '@salesforce/apex/ExternalOrgQueryController.insertRecordsCurrent';
 
 export default class ExternalOrgQuery extends LightningElement {
     // UI state for external org connection and query execution
@@ -314,6 +315,15 @@ export default class ExternalOrgQuery extends LightningElement {
     get isFinalExportDisabled() {
         const destConnected = this.isDestinationCurrentOrg || (!!this.destSessionId && !!this.destInstanceUrl);
         return this.isExportDisabled || !this.hasCollectedIds || !destConnected;
+    }
+
+    get hasFinalQueries() {
+        return Array.isArray(this.finalExportQueries) && this.finalExportQueries.length > 0;
+    }
+
+    get isStartImportDisabled() {
+        // For now, support import only when Destination is current org
+        return !this.hasFinalQueries || this.isLoading || !this.isDestinationCurrentOrg;
     }
 
     handlePlanNodeToggle = (event) => {
@@ -1118,6 +1128,100 @@ export default class ExternalOrgQuery extends LightningElement {
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Failed to build final export queries');
             console.error('Final export error', this.error);
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    handleCheckMatchingDestination = () => {
+        // Placeholder for later implementation
+        console.log('Check Matching in Destination clicked');
+    };
+
+    async handleStartImport() {
+        if (!this.hasFinalQueries) {
+            this.error = 'No final export queries available. Run Final Export first';
+            return;
+        }
+        // For now, require destination to be current org to use simple DML
+        if (!this.isDestinationCurrentOrg) {
+            this.error = 'Start Import currently supports Destination = Use Current Org';
+            return;
+        }
+
+        this.error = undefined;
+        this.isLoading = true;
+
+        try {
+            // Map of objectName -> Map(oldId -> newId)
+            const idRemap = new Map();
+            const getTargetMap = (obj) => { if (!idRemap.has(obj)) idRemap.set(obj, new Map()); return idRemap.get(obj); };
+
+            // Build quick lookup of reference fields for each object from plan edges
+            const getRefTargetsByField = (objectName) => {
+                const list = this.planEdges && this.planEdges.get(objectName);
+                const map = new Map();
+                if (list && list.forEach) {
+                    list.forEach((e) => { if (e && e.fieldName && e.target) map.set(e.fieldName, e.target); });
+                }
+                return map;
+            };
+
+            // Iterate from bottom of the list (last index) to the top
+            for (let i = this.finalExportQueries.length - 1; i >= 0; i -= 1) {
+                const def = this.finalExportQueries[i] || {};
+                const objectName = def.objectName;
+                const soql = def.soql;
+                if (!objectName || !soql) continue;
+
+                // Retrieve data from Source using the stored SOQL
+                const srcResult = await this.runQueryWithSession(soql);
+                const rows = (srcResult && srcResult.rows) || [];
+                if (!rows.length) {
+                    continue;
+                }
+
+                const refByField = getRefTargetsByField(objectName);
+                const records = [];
+                for (const row of rows) {
+                    if (!row) continue;
+                    const out = { Id: row.Id };
+                    for (const key of Object.keys(row)) {
+                        if (key === 'Id') continue; // never set Id on insert
+                        let value = row[key];
+                        const targetObj = refByField.get(key);
+                        if (targetObj) {
+                            const mapForTarget = idRemap.get(targetObj);
+                            if (mapForTarget) {
+                                if (typeof value === 'string' && mapForTarget.has(value)) {
+                                    value = mapForTarget.get(value);
+                                } else if (Array.isArray(value)) {
+                                    value = value.map((v) => (typeof v === 'string' && mapForTarget.has(v)) ? mapForTarget.get(v) : v);
+                                }
+                            }
+                        }
+                        out[key] = value;
+                    }
+                    records.push(out);
+                }
+
+                // Insert into destination current org using simple DML
+                const insertResults = await insertRecordsCurrent({ objectName, records });
+                const mapForObject = getTargetMap(objectName);
+                if (Array.isArray(insertResults)) {
+                    for (const r of insertResults) {
+                        if (r && r.success && r.oldId && r.newId) {
+                            mapForObject.set(r.oldId, r.newId);
+                        }
+                    }
+                }
+            }
+
+            console.log('Import completed');
+        } catch (e) {
+            const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Import failed');
+            this.error = msg;
+            console.error('Start import error', msg);
         } finally {
             this.isLoading = false;
         }

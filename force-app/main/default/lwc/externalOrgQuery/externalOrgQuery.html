@@ -235,6 +235,25 @@
                         ></lightning-button>
                     </div>
                 </div>
+                <!-- Post-final-export actions -->
+                <template if:true={hasFinalQueries}>
+                    <div class="slds-grid slds-wrap slds-gutters slds-m-top_small plan-controls">
+                        <div class="slds-col slds-size_1-of-1 slds-align_absolute-center plan-buttons">
+                            <lightning-button
+                                class="slds-m-right_small"
+                                variant="neutral"
+                                label="Check Matching in Destination"
+                                onclick={handleCheckMatchingDestination}
+                            ></lightning-button>
+                            <lightning-button
+                                variant="brand"
+                                label="Start Import"
+                                onclick={handleStartImport}
+                                disabled={isStartImportDisabled}
+                            ></lightning-button>
+                        </div>
+                    </div>
+                </template>
             </div>
         </template>
         
