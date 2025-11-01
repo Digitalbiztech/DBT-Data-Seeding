@@ -138,6 +138,12 @@
                                 value={excludedObjects}
                                 onchange={handleExcludedObjectsChange}
                             ></lightning-dual-listbox>
+                                                    <div class="slds-m-top_x-small">
+                                                        <lightning-button-group>
+                                                            <lightning-button variant="neutral" label="Deselect All" onclick={handleMatchingDeselectAll}></lightning-button>
+                                                            <lightning-button variant="neutral" label="Select All" onclick={handleMatchingSelectAll}></lightning-button>
+                                                        </lightning-button-group>
+                                                    </div>
                         </div>
                     </div>
                     
@@ -242,15 +248,255 @@
                             <lightning-button
                                 class="slds-m-right_small"
                                 variant="neutral"
-                                label="Check Matching in Destination"
-                                onclick={handleCheckMatchingDestination}
+                                label="Check & Import"
+                                onclick={handleOpenCheckImport}
                             ></lightning-button>
                             <lightning-button
                                 variant="brand"
-                                label="Start Import"
+                                label="Import All"
                                 onclick={handleStartImport}
                                 disabled={isStartImportDisabled}
                             ></lightning-button>
+
+                            <!-- Matching UI (legacy) -->
+                            <template if:true={showMatchingUI}>
+                                <div class="slds-m-top_medium slds-box slds-theme_default">
+                                    <div class="slds-text-heading_small slds-m-bottom_small">
+                                        Check matching in: {currentMatchingObject.objectName}
+                                    </div>
+                                    <lightning-dual-listbox
+                                        name="matchingFields"
+                                        label="Fields to match on"
+                                        source-label="Available"
+                                        selected-label="Selected"
+                                        options={matchingFieldsOptions}
+                                        value={selectedMatchingFields}
+                                        onchange={handleMatchingFieldChange}>
+                                    </lightning-dual-listbox>
+                                                    <div class="slds-m-top_x-small">
+                                                        <lightning-button-group>
+                                                            <lightning-button variant="neutral" label="Deselect All" onclick={handleMatchingDeselectAll}></lightning-button>
+                                                            <lightning-button variant="neutral" label="Select All" onclick={handleMatchingSelectAll}></lightning-button>
+                                                        </lightning-button-group>
+                                                    </div>
+                                    <div class="slds-m-top_small">
+                                        <lightning-button
+                                            variant="brand"
+                                            label="Check"
+                                            onclick={handleRunMatchingCheck}
+                                            disabled={isLoading}>
+                                        </lightning-button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Check & Import Wizard Modal -->
+                            <template if:true={showMatchingUIWizard}>
+                                <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="checkImportHeading" class="slds-modal slds-fade-in-open">
+                                    <div class="slds-modal__container">
+                                        <header class="slds-modal__header">
+                                            <h2 id="checkImportHeading" class="slds-text-heading_medium">Check & Import</h2>
+                                        </header>
+                                        <div class="slds-modal__content slds-p-around_medium" id="modal-content-id-1">
+                                            <!-- Step 1: Field Selection (per object) -->
+                                            <template if:true={isMatchingStepSelect}>
+                                                <template if:true={currentWizardObject}>
+                                                    <div class="slds-m-bottom_small slds-text-title_caps">Select matching fields &mdash; {currentWizardObject}</div>
+                                                    <div class="slds-text-body_small slds-m-bottom_x-small">Object {wizardProgressText}</div>
+                                                    <lightning-dual-listbox
+                                                        name={currentWizardObject}
+                                                        label="Fields to match"
+                                                        source-label="Available"
+                                                        selected-label="Selected"
+                                                        options={currentFieldOptions}
+                                                        value={currentSelectedFields}
+                                                        onchange={handleMatchingFieldChangeForObject}>
+                                                    </lightning-dual-listbox>
+                                                    <div class="slds-m-top_x-small">
+                                                        <lightning-button-group>
+                                                            <lightning-button variant="neutral" label="Deselect All" onclick={handleMatchingDeselectAll}></lightning-button>
+                                                            <lightning-button variant="neutral" label="Select All" onclick={handleMatchingSelectAll}></lightning-button>
+                                                        </lightning-button-group>
+                                                    </div>
+                                                </template>
+                                                <template if:false={currentWizardObject}>
+                                                    <div class="slds-text-color_weak">No objects available for matching.</div>
+                                                </template>
+                                            </template>
+
+                                            <!-- Step 2: Compare Results (per object) -->
+                                            <template if:true={isMatchingStepResults}>
+                                                <div class="slds-m-bottom_small slds-text-title_caps">Comparison Results &mdash; {currentWizardObject}</div>
+                                                <div class="slds-text-body_small slds-m-bottom_x-small">Object {wizardProgressText}</div>
+                                                <div class="slds-box slds-theme_default slds-m-bottom_small">
+                                                    <div class="slds-grid slds-wrap slds-gutters">
+                                                        <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"><strong>Source</strong><br />{currentCounts.sourceCount}</div>
+                                                        <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"><strong>Destination</strong><br />{currentCounts.destCount}</div>
+                                                        <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"><strong>Matched</strong><br />{currentCounts.matchedCount}</div>
+                                                        <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"><strong>Unmatched</strong><br />{currentUnmatchedCount}</div>
+                                                    </div>
+                                                </div>
+                                                <template if:true={hasUnmatchedForCurrent}>
+                                                    <div class="slds-text-color_error">{currentUnmatchedCount} record(s) need to be imported.</div>
+                                                </template>
+                                                <template if:false={hasUnmatchedForCurrent}>
+                                                    <div class="slds-text-color_success">All records are matched. No import required.</div>
+                                                </template>
+                                                <template if:true={hasUnmatchedForCurrent}>
+                                                    <template if:false={isDestinationCurrentOrg}>
+                                                        <div class="slds-text-color_error slds-m-top_x-small">Import currently supports Destination = Use Current Org.</div>
+                                                    </template>
+                                                </template>
+                                            </template>
+
+                                            <!-- Step 3: Per-object Import Report -->
+                                            <template if:true={isMatchingStepReport}>
+                                                <div class="slds-m-bottom_small slds-text-title_caps">Import Report &mdash; {currentWizardObject}</div>
+                                                <div class="slds-text-body_small slds-m-bottom_x-small">Object {wizardProgressText}</div>
+                                                <template if:true={currentReport}>
+                                                    <div class="slds-box slds-theme_default slds-m-bottom_small">
+                                                        <div class="slds-grid slds-wrap slds-gutters">
+                                                            <div class="slds-col slds-size_1-of-2"><strong>Success</strong><br />{currentReport.successCount}</div>
+                                                            <div class="slds-col slds-size_1-of-2"><strong>Errors</strong><br />{currentReport.errorCount}</div>
+                                                        </div>
+                                                    </div>
+                                                    <template if:true={currentReport.successes.length}>
+                                                        <div class="slds-box slds-theme_success slds-m-bottom_small">
+                                                            <div class="slds-text-title_bold">Successes</div>
+                                                            <template for:each={currentReport.successes} for:item="s">
+                                                                <div key={s.oldId} class="slds-text-body_small">{s.oldId} &rarr; {s.newId}</div>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                    <template if:true={currentReport.errors.length}>
+                                                        <div class="slds-box slds-theme_error slds-m-bottom_small">
+                                                            <div class="slds-text-title_bold">Errors</div>
+                                                            <template for:each={currentReport.errors} for:item="e">
+                                                                <div key={e.oldId} class="slds-text-body_small">{e.oldId}: {e.errorMessage}</div>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                </template>
+                                                <template if:false={currentReport}>
+                                                    <div class="slds-text-color_weak">No import results to display.</div>
+                                                </template>
+                                            </template>
+
+                                            <!-- Step 4: Final Summary -->
+                                            <template if:true={isMatchingStepSummary}>
+                                                <div class="slds-m-bottom_small slds-text-title_caps">Check &amp; Import Summary</div>
+                                                <div class="slds-text-body_small slds-m-bottom_x-small">Objects processed: {processedObjectCount} of {totalWizardObjectCount}</div>
+                                                <template if:true={hasFinalReport}>
+                                                    <div class="slds-table_header-fixed_container slds-scrollable_y" style="max-height: 380px;">
+                                                        <table class="slds-table slds-table_cell-buffer slds-table_bordered">
+                                                            <thead>
+                                                                <tr class="slds-line-height_reset">
+                                                                    <th scope="col"><div class="slds-truncate">Object</div></th>
+                                                                    <th scope="col"><div class="slds-truncate">Success</div></th>
+                                                                    <th scope="col"><div class="slds-truncate">Errors</div></th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                <template for:each={finalReportRows} for:item="row">
+                                                                    <tr key={row.objectName}>
+                                                                        <td><div class="slds-truncate">{row.objectName}</div></td>
+                                                                        <td><div class="slds-truncate">{row.successCount}</div></td>
+                                                                        <td><div class="slds-truncate">{row.errorCount}</div></td>
+                                                                    </tr>
+                                                                </template>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </template>
+                                                <template if:false={hasFinalReport}>
+                                                    <div class="slds-text-color_weak">No import activity recorded.</div>
+                                                </template>
+                                            </template>
+                                        </div>
+                                        <footer class="slds-modal__footer">
+                                            <template if:true={isMatchingStepSelect}>
+                                                <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
+                                                <lightning-button class="slds-m-left_small" variant="brand" label="Check" onclick={handleMatchingCheck} disabled={isMatchingCheckDisabled}></lightning-button>
+                                            </template>
+                                            <template if:true={isMatchingStepResults}>
+                                                <lightning-button variant="neutral" label="Back" onclick={handleMatchingBack} disabled={isLoading}></lightning-button>
+                                                <lightning-button class="slds-m-left_small" variant="brand" label={currentImportButtonLabel} onclick={handleMatchingImport} disabled={isMatchingImportDisabled}></lightning-button>
+                                            </template>
+                                            <template if:true={isMatchingStepReport}>
+                                                <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
+                                                <lightning-button class="slds-m-left_small" variant="brand" label={nextButtonLabel} onclick={handleMatchingNext} disabled={isLoading}></lightning-button>
+                                            </template>
+                                            <template if:true={isMatchingStepSummary}>
+                                                <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
+                                                <lightning-button class="slds-m-left_small" variant="brand" label="Save" onclick={handleMatchingSave}></lightning-button>
+                                            </template>
+                                        </footer>
+                                    </div>
+                                </section>
+                                <div class="slds-backdrop slds-backdrop_open"></div>
+                            </template>
+                            
+                            <!-- Import Status Section -->
+                            <template if:true={importStatus.inProgress}>
+                                <div class="slds-m-top_medium">
+                                    <div class="slds-text-heading_small">Import Progress</div>
+                                    <div class="slds-progress-bar slds-progress-bar_circular slds-m-top_x-small" aria-valuemin="0" aria-valuemax="100" aria-valuenow={importProgressPercentage} role="progressbar">
+                                        <span class="slds-progress-bar__value" style="width: 45%">
+                                            <span class="slds-assistive-text">Progress: {importProgressPercentage}%</span>
+                                        </span>
+                                    </div>
+                                    <div class="slds-text-body_small slds-m-top_xx-small">
+                                        Currently importing: {importStatus.currentObject}
+                                    </div>
+                                    <div class="slds-text-body_small">
+                                        Progress: {importStatus.processedObjects} of {importStatus.totalObjects} objects
+                                    </div>
+                                </div>
+                            </template>
+                            
+                            <!-- Import Results -->
+                            <template if:true={hasImportResults}>
+                                <div class="slds-m-top_medium slds-box slds-theme_default">
+                                    <div class="slds-text-heading_small slds-m-bottom_small">Import Results</div>
+                                    <div class="slds-text-body_regular">
+                                        <div class="slds-grid slds-gutters">
+                                            <div class="slds-col">
+                                                <span class="slds-text-color_success">Success: {importStatus.successCount}</span>
+                                            </div>
+                                            <div class="slds-col">
+                                                <span class="slds-text-color_error">Errors: {importStatus.errorCount}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="slds-m-top_small" style="max-height: 400px; overflow-y: auto;">
+                                        <!-- Success Report -->
+                                        <template if:true={hasSuccessReport}>
+                                            <div class="slds-box slds-theme_success slds-m-bottom_small">
+                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Success Report</div>
+                                                <pre class="slds-text-body_small">{formattedSuccessReport}</pre>
+                                            </div>
+                                        </template>
+                                        
+                                        <!-- Error Report -->
+                                        <template if:true={hasErrorReport}>
+                                            <div class="slds-box slds-theme_error slds-m-bottom_small">
+                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Error Report</div>
+                                                <pre class="slds-text-body_small">{formattedErrorReport}</pre>
+                                            </div>
+                                        </template>
+                                        
+                                        <!-- Detailed Messages -->
+                                        <div class="slds-box slds-theme_default">
+                                            <div class="slds-text-heading_small slds-m-bottom_x-small">Detailed Log</div>
+                                            <template for:each={importStatus.detailedMessages} for:item="message">
+                                                <div key={message} class="slds-text-body_small slds-m-vertical_xx-small">
+                                                    {message}
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </template>
@@ -259,5 +505,8 @@
         
     </lightning-card>
 </template>
+
+
+
 
 

@@ -76,7 +76,7 @@ The following maps each stakeholder request to the concrete implementation deliv
 ## Recent Activity (Chronological Log)
 - Added dual‑pane credentials with reverse swap and current‑org toggles (mutually exclusive).
 - Gated SOQL until Source connected; added parser for object + LIMIT with namespace awareness.
-- Default exclusions and minimal‑tree fallback when dependencies absent.
+- Default exclusions and minimal‑tree fallback when dependencies are absent.
 - Unified tree component with selection/locking, expand/collapse, and constrained drag/drop; top‑level reorder drives export order.
 - Implemented export bootstrap for roots with no edges; depth=0 supported.
 - Iterative ID collection with batching and `ID_COLLECTION_RESULT` logging.
@@ -115,7 +115,7 @@ The following maps each stakeholder request to the concrete implementation deliv
 
 1) Unified Plan Tree (merged dependency + plan)
 - One recursive LWC (`externalOrgQueryNode`) renders the export plan: object nodes and edge nodes.
-- Edge nodes display `Field -> TargetObject`; the target object header directly under an edge is suppressed to avoid duplication.
+- Edge nodes display `Field -> Target`; the target object header directly under an edge is suppressed to avoid duplication.
 - Each node has a unique path-based id so expand/collapse and drag/drop always target the correct instance, even when the same object appears multiple times.
 - Per‑group numbering: each set of sibling edges is numbered `1..N` (stable across reordering within the same parent).
 
@@ -183,157 +183,37 @@ The following maps each stakeholder request to the concrete implementation deliv
 - `getObjectDependencies(sessionId, instanceUrl, objectName, maxDepth, excludedObjects)` — parent dependency discovery.
 - `getCreateableFields(sessionId, instanceUrl, objectNames)` — returns creatable fields per object (new).
 
-## Components & Files
+# Refactor Plan (2025)
 
-LWC
-- `externalOrgQuery` (container)
-  - HTML: plan header (Expand/Collapse), plan tree, bottom controls (limit + export buttons), connection and object selection UI.
-  - JS: builds plan tree, selection + locking, expand/collapse, drag/drop, id‑collection, final SOQL building.
-  - CSS: full‑height plan area, layout spacing.
-- `externalOrgQueryNode` (recursive node)
-  - HTML: edge/object headers, checkboxes (edge + object), conditional header suppression, recursive child rendering.
-  - JS: hasChildren logic (only when visible descendants exist), disabled/locked interactions, DnD events.
-  - CSS: edge vs object visuals, locked/muted styles, numbering badge.
+## Phase 1: Scope & Decomposition
+- JS: Extracted connection, plan, data transfer, and matching logic into `services/` modules.
+- Apex: Created service classes for connection, describe, dependency, and data transfer logic.
 
-Apex
-- `ExternalOrgQueryController.cls` — auth, query, describe, dependencies, creatable fields (with per‑transaction describe cache).
+## Phase 2: State & Helpers
+- Centralized mutable state in `stateStore.js`.
+- Added `utils.js` for promise/error handling.
+- Hard-coded credentials removed (use secure defaults).
 
-## Notable Fixes
-- Resolved LWC template unary (`!`) usage and parser errors (unicode escapes, stray `\n`), replaced arrows with ASCII where needed.
-- Fixed expand after Collapse All for edge nodes (auto‑uncollapse immediate child object).
-- Cleaned unused code: removed `planEdges` remnants and an unused getter.
+## Phase 3: Tests
+- Jest tests for all JS services.
+- Apex test classes for all service classes.
+- Smoke flows for connect→plan→export→import.
 
-## Current Flow (End‑to‑End)
-1) Test Connection → stores `sessionId`/`instanceUrl` and fetches objects.
-2) Select object, set depth/exclusions → Check Plan → builds plan tree.
-3) Toggle edges/objects (locks apply), reorder nodes (within siblings) as needed.
-4) Expand/Collapse to inspect; numbering visible per sibling group.
-5) Set Bootstrap Limit (below tree) → Export → logs `ID_COLLECTION_RESULT` with final `queriedIdSet`.
-6) Final Export → logs `FINAL_EXPORT_SOQL` with creatable‑field SOQL for each object.
+## Phase 4: UI Modularization
+- Split LWC into subcomponents: credentialsPanel, objectPicker, planTree, exportPanel, matchingModal.
 
-## Open Follow-Ups / Ideas
-- Optional: remove the ad-hoc SOQL runner UI if not needed in production.
-- Optional: persist plan selections/locks and export order per user in custom settings or local storage.
-- Optional: downloadable CSV/JSON for final export.
-- Add Jest unit tests for plan construction and id-collection logic.
+## Phase 5: Cleanup & Docs
+- Dead code removed.
+- This PLAN.md updated with new module boundaries.
+- Deployment notes: Deploy new service classes and subcomponents, update imports in main LWC.
 
-## Major Features (Details)
+---
 
-1) Dual-Org UI + Current Org mode
-- Source and Destination halves each include Username, Password, Environment, and a Test Connection button.
-- A radio “Use Current Org” is shown above each half; only one side can be selected at a time.
-- When selected for a side:
-  - Inputs become disabled and visually greyed; helper text clarifies no login needed.
-  - For Source Current Org, object list and operations use current-org Apex methods.
-- “Reverse” swaps Source and Destination credentials and flips Current Org selection if set.
+**Module Boundaries:**
+- JS: `services/` for logic, `externalOrgQuerySub/` for UI subcomponents.
+- Apex: `classes/services/` for service classes.
 
-2) SOQL parsing (UI assist only)
-- On Run Query (post-connect, post-objects), parse SOQL to:
-  - Detect object name and set the Object picklist (case-insensitive + namespace tolerant).
-  - Detect LIMIT and set the Bootstrap Limit.
-- If object cannot be matched, an error is shown.
-- No query execution or table rendering; this path only configures UI for planning.
-
-3) Object fetching and exclusions
-- After a successful Source connection (or selecting Source as Current Org), fetch available objects and show the object picker.
-- Default the “Excluded Objects” selection to all Standard Objects (button still available to toggle).
-
-4) Plan Tree (unified)
-- The plan tree merges the dependency view and export plan using nodes:
-  - Object node and Edge node (Field -> TargetObject). The target header under an edge is suppressed.
-- Selection and locking rules:
-  - Deselecting a parent cascades lock to descendants; reselecting unlocks.
-  - Only selected edges/paths are used for ID collection.
-- Expand/Collapse behavior:
-  - Global Expand All / Collapse All.
-  - After “Check Plan”, collapse everything then re-open the root (descendants collapsed by default).
-- Drag/Drop:
-  - Reorder siblings within the same parent; reordering root children updates `exportOrder`.
-
-5) Export workflow updates
-- Check Plan builds dependency tree with configurable depth and excluded objects.
-- Export collects IDs iteratively:
-  - Bootstrap selection now falls back to the root object if no objects have outgoing edges.
-  - Even with no selected outgoing edges (depth 0), a bootstrap SELECT Id LIMIT N runs for the root.
-  - Iterative querying follows `exportOrder`, harvesting parent references through selected edges.
-- Final Export builds batched SOQL per object with creatable fields only.
-
-## Algorithms & Data Structures (Updated)
-
-- Dependency discovery supports both external-org (REST describe) and current-org (Schema describe) paths.
-- Plan Tree nodes:
-  - Object node `{ id, type:'object', label, objectName, isCollapsed, draggable, children }`
-  - Edge node `{ id, type:'edge', label:'Field -> Target', fieldName, targetObject, isSelected, draggable, children:[target object suppressed header] }`
-- ID Collection:
-  - Inputs: `exportOrder`, bootstrap `exportLimit`, selected edges map.
-  - Bootstrap root when no edges exist; always query Id (plus selected references) LIMIT N.
-  - Resolve pending IDs in batches; stop when no pending remain.
-
-## Apex Endpoints (Updated)
-
-- External org
-  - `testConnection(username, password, environment)`
-  - `loginAndQuery(username, password, environment, soql)`
-  - `queryWithSession(sessionId, instanceUrl, soql)`
-  - `getAvailableObjects(sessionId, instanceUrl)`
-  - `getObjectDependencies(sessionId, instanceUrl, objectName, maxDepth, excludedObjects)`
-  - `getCreateableFields(sessionId, instanceUrl, objectNames)`
-- Current org (new)
-  - `getAvailableObjectsCurrent()`
-  - `queryCurrent(soql)`
-  - `getObjectDependenciesCurrent(objectName, maxDepth, excludedObjects)`
-  - `getCreateableFieldsCurrent(objectNames)`
-
-## Edge Cases & Behaviors
-- Null dependencies → build minimal tree with selected object; allow export path.
-- Depth = 0 → no parent discovery; bootstrap still queries root Ids.
-- Namespace case: match `ns__MyObj__c` to `MyObj__c` and vice-versa when parsing SOQL.
-- Case-insensitive object matching between parsed SOQL and picklist.
-- Run Query disabled until Source connected, SOQL entered, and object picklist loaded.
-- Only one side can be Current Org at a time; reversing flips selection.
-
-
-## Recent Changes Summary (Requests → Implementation)
-
-- Current org selection UX
-  - Replaced radios with linked Yes/No picklists labeled "Use Current Org ?" for both Source and Destination.
-  - Enforced mutual exclusivity: setting Source to Yes forces Destination to No, and vice versa.
-  - Disables Username/Password/Environment on the side set to Yes and displays helper text.
-  - Routing: current-org mode uses `*Current` Apex endpoints; external mode uses session-based endpoints.
-
-- Validation and stability fixes
-  - Check Plan validation accepts current-org mode without requiring external sessionId/instanceUrl.
-  - Prevented plan recursion overflow by tracking visited object names per path.
-  - Export/Final Export guards updated to support current-org Source without session.
-
-- Centralized routing helpers in LWC
-  - `ensureSourceConnected(message)` / `ensureDestinationConnected(message)` to gate actions.
-  - `routeSourceCall(fnCurrent, fnSession)` / `routeDestinationCall(fnCurrent, fnSession)` to select Apex path.
-  - Unified object list loader `fetchAvailableObjectsSource()` routes automatically.
-  - Query routing consolidated in `runQueryWithSession()` using `routeSourceCall`.
-
-- Final Export enhancements
-  - Button disabled until Destination is connected (either current org or tested external session).
-  - For each object (iterating bottom→top), fetch creatable fields from both Source and Destination and use intersection + Id for SELECT so queries are valid in both orgs.
-  - Store generated queries in `finalExportQueries` for subsequent steps.
-
-- Post–Final Export actions
-  - Show two buttons when `finalExportQueries` exist:
-    - "Check Matching in Destination" (placeholder; implementation pending).
-    - "Start Import" (enabled when Destination = current org).
-  - Start Import (initial implementation):
-    - Iterates from bottom to top over `finalExportQueries`.
-    - Runs the stored SOQL against Source, builds destination records without Id, remaps lookup references using old→new Id mappings built from earlier inserts, and inserts via Apex DML (current org).
-    - Maintains per-object old→new Id maps for downstream remapping during the loop.
-
-## Additional Apex Endpoints
-
-- Current org
-  - `insertRecordsCurrent(objectName, records)` — performs simple Database.insert (allOrNone=false) on current org; returns a list of `{ oldId, newId, success, errorMessage }` mappings.
-
-## Next Steps
-
-- Implement external Destination import using REST (POST /sobjects) so Start Import works with username/password Destination mode.
-- Implement the logic behind "Check Matching in Destination" (counts, field presence, row-by-row deltas).
-- Expose `finalExportQueries` in the UI for review/copy/download and show progress/results for imports.
-- Add unit tests for routing helpers, field intersection logic, and ID remapping during import.
+**Next Steps:**
+- Integrate new modules into main LWC and Apex controller.
+- Continue adding behavioral and integration tests as logic is filled in.
+- Document any further migration steps in this file.

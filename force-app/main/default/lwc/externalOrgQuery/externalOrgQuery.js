@@ -1,3 +1,4 @@
+﻿
 import { LightningElement, track } from 'lwc';
 import testConnection from '@salesforce/apex/ExternalOrgQueryController.testConnection';
 import getAvailableObjects from '@salesforce/apex/ExternalOrgQueryController.getAvailableObjects';
@@ -38,10 +39,31 @@ export default class ExternalOrgQuery extends LightningElement {
     @track excludedObjects = [];
     @track planRoot;
     @track planReady = false;
-    @track exportLimit = 50;
+    @track exportLimit = 2;
     @track exportOrder = [];
     @track lastQueriedIdSnapshot;
     @track finalExportQueries = [];
+    // Matching UI (wizard) flags (HTML expects these but logic not implemented here)
+    @track showMatchingUI = false;
+    @track showMatchingUIWizard = false;
+    @track wizard = { isOpen: false, step: 'select', objects: [], index: 0 };
+    // per-object matching state
+    matchingOptionsByObject = new Map(); // object -> [{label,value}]
+    selectedMatchingFieldsByObject = new Map(); // object -> [field]
+    matchResultsByObject = new Map(); // object -> { sourceRows, matchedRows, unmatchedRows, counts, report }
+    @track finalReportRows = [];
+    // Import status + reporting (used by template)
+    @track importStatus = {
+        inProgress: false,
+        currentObject: '',
+        processedObjects: 0,
+        totalObjects: 0,
+        successCount: 0,
+        errorCount: 0,
+        detailedMessages: []
+    };
+    successReportLines = [];
+    errorReportLines = [];
     isLoading = false;
     // One-shot flags to suppress onchange after manual deselect click
     _suppressSourceChangeOnce = false;
@@ -62,7 +84,6 @@ export default class ExternalOrgQuery extends LightningElement {
             { label: 'Sandbox', value: 'Sandbox' }
         ];
     }
-
     get yesNoOptions() {
         return [
             { label: 'Yes', value: 'yes' },
@@ -161,7 +182,6 @@ export default class ExternalOrgQuery extends LightningElement {
         this.maxDepth = safe;
         this.dependencyTree = undefined;
     };
-
     // New picklist handlers to centralize YES/NO and keep Source/Destination synchronized
     handleSourceCurrentPick = (event) => {
         const val = (event && event.detail && event.detail.value) || 'no';
@@ -294,7 +314,6 @@ export default class ExternalOrgQuery extends LightningElement {
         }
         // If not selected, normal onchange will handle selecting it
     };
-
     get hasPlan() {
         // Consider a plan valid if we built a root node, even with no edges
         return this.planReady && !!this.planRoot;
@@ -325,6 +344,24 @@ export default class ExternalOrgQuery extends LightningElement {
         // For now, support import only when Destination is current org
         return !this.hasFinalQueries || this.isLoading || !this.isDestinationCurrentOrg;
     }
+
+    // Import UI computed getters
+    get importProgressPercentage() {
+        const t = this.importStatus && this.importStatus.totalObjects ? this.importStatus.totalObjects : 0;
+        const p = this.importStatus && this.importStatus.processedObjects ? this.importStatus.processedObjects : 0;
+        if (!t) return 0;
+        const pct = Math.floor((Math.min(p, t) / t) * 100);
+        return isNaN(pct) ? 0 : pct;
+    }
+    get hasImportResults() {
+        const s = (this.importStatus && this.importStatus.successCount) || 0;
+        const e = (this.importStatus && this.importStatus.errorCount) || 0;
+        return !this.importStatus.inProgress && (s + e > 0);
+    }
+    get hasSuccessReport() { return (this.successReportLines && this.successReportLines.length > 0); }
+    get hasErrorReport() { return (this.errorReportLines && this.errorReportLines.length > 0); }
+    get formattedSuccessReport() { return (this.successReportLines || []).join('\n'); }
+    get formattedErrorReport() { return (this.errorReportLines || []).join('\n'); }
 
     handlePlanNodeToggle = (event) => {
         const { nodeId } = event.detail || {};
@@ -358,7 +395,6 @@ export default class ExternalOrgQuery extends LightningElement {
             console.log(JSON.stringify({ type: 'PLAN_REORDER', order: this.exportOrder }, null, 2));
         }
     };
-
     clonePlanNode(node) {
         if (!node) {
             return node;
@@ -494,7 +530,6 @@ export default class ExternalOrgQuery extends LightningElement {
 
         return edgesByObject;
     }
-
         buildPlanTree(rootObject, order, edgesByObject) {
         const buildEdgeNode = (fromObj, edge, pathKey, depth, visited, seq) => {
             const edgeId = `edge-${pathKey}-${fromObj}-${edge.fieldName}-${edge.target}`;
@@ -553,7 +588,6 @@ export default class ExternalOrgQuery extends LightningElement {
         root.id = 'plan-root';
         return root;
     }
-
     findParentAndIndexById(node, id) {
         if (!node || !id) return null;
         const stack = [node];
@@ -696,7 +730,6 @@ export default class ExternalOrgQuery extends LightningElement {
             this.isLoading = false;
         }
     }
-
     async handleTestConnectionDestination() {
         // Destination connection test: only display result, store separately
         this.destTestMessage = undefined;
@@ -805,7 +838,6 @@ export default class ExternalOrgQuery extends LightningElement {
             this.isLoading = false;
         }
     }
-
     handlePlanEdgeToggle = (event) => {
         const { nodeId, isSelected } = event.detail || {};
         if (!nodeId) return;
@@ -836,6 +868,251 @@ export default class ExternalOrgQuery extends LightningElement {
         }
         this.planRoot = root;
     };
+
+    // Matching wizard: getters
+    get isMatchingStepSelect() { return this.showMatchingUIWizard && this.wizard.step === 'select'; }
+    get isMatchingStepResults() { return this.showMatchingUIWizard && this.wizard.step === 'results'; }
+    get isMatchingStepReport() { return this.showMatchingUIWizard && this.wizard.step === 'report'; }
+    get isMatchingStepSummary() { return this.showMatchingUIWizard && this.wizard.step === 'summary'; }
+    get currentWizardObject() { return (this.wizard.objects[this.wizard.index]) || ''; }
+    get currentMatchingObject() { return { objectName: this.currentWizardObject }; }
+    get wizardProgressText() { const i=this.wizard.index+1; const n=this.wizard.objects.length||0; return `${i} of ${n}`; }
+    get totalWizardObjectCount() { return this.wizard.objects.length || 0; }
+    get processedObjectCount() { return Array.from(this.matchResultsByObject.values()).filter(v => v && v.report).length; }
+
+    // Field options + selections
+    get currentFieldOptions() { return this.matchingOptionsByObject.get(this.currentWizardObject) || []; }
+    get currentSelectedFields() { return this.selectedMatchingFieldsByObject.get(this.currentWizardObject) || []; }
+    // Legacy UI proxies
+    get matchingFieldsOptions() { return this.currentFieldOptions; }
+    get selectedMatchingFields() { return this.currentSelectedFields; }
+
+    // Result helpers
+    get currentResult() { return this.matchResultsByObject.get(this.currentWizardObject) || { counts: { sourceCount: 0, destCount: 0, matchedCount: 0 }, unmatchedRows: [], matchedRows: [], sourceRows: [] }; }
+    get currentCounts() { return this.currentResult.counts; }
+    get currentUnmatchedCount() { return (this.currentResult.unmatchedRows || []).length; }
+    get hasUnmatchedForCurrent() { return this.currentUnmatchedCount > 0; }
+    get currentReport() { return (this.currentResult && this.currentResult.report) || null; }
+    get hasFinalReport() { return Array.isArray(this.finalReportRows) && this.finalReportRows.length > 0; }
+    get currentImportButtonLabel() { return 'Import Unmatched'; }
+    get nextButtonLabel() { return (this.wizard.index >= this.wizard.objects.length - 1) ? 'Finish' : 'Next'; }
+    get isMatchingCheckDisabled() {
+        const fields = this.currentSelectedFields;
+        return !this.isDestinationCurrentOrg || this.isLoading || !(fields && fields.length);
+    }
+    get isMatchingImportDisabled() {
+        return !this.isDestinationCurrentOrg || this.isLoading || !this.hasUnmatchedForCurrent;
+    }
+
+    // Matching wizard: handlers
+    handleOpenCheckImport = async () => {
+        if (!this.hasFinalQueries) {
+            this.error = 'Run Final Export first';
+            return;
+        }
+        if (!this.isDestinationCurrentOrg) {
+            this.error = 'Check & Import requires Destination = Use Current Org';
+            return;
+        }
+        this.error = undefined;
+        // Build unique object list from finalExportQueries
+        const objects = Array.from(new Set((this.finalExportQueries || []).map(q => q && q.objectName).filter(Boolean)));
+        this.wizard = { isOpen: true, step: 'select', objects, index: 0 };
+        this.showMatchingUIWizard = true;
+        // Preload options for first object
+        await this.loadMatchingFieldOptionsFor(this.currentWizardObject);
+    };
+
+    handleMatchingCancel = () => {
+        this.showMatchingUIWizard = false;
+        this.wizard = { isOpen: false, step: 'select', objects: [], index: 0 };
+    };
+
+    handleMatchingFieldChangeForObject = (event) => {
+        const values = (event && event.detail && event.detail.value) || [];
+        this.selectedMatchingFieldsByObject.set(this.currentWizardObject, Array.isArray(values) ? values : []);
+    };
+    handleMatchingFieldChange = this.handleMatchingFieldChangeForObject;
+
+    handleMatchingDeselectAll = () => {
+        this.selectedMatchingFieldsByObject.set(this.currentWizardObject, []);
+    };
+    handleMatchingSelectAll = () => {
+        const opts = this.currentFieldOptions;
+        this.selectedMatchingFieldsByObject.set(this.currentWizardObject, opts.map(o => o.value));
+    };
+
+    handleRunMatchingCheck = async () => {
+        const objectName = this.currentWizardObject;
+        const fields = this.currentSelectedFields;
+        if (!objectName || !fields || !fields.length) {
+            this.error = 'Select at least one field to match';
+            return;
+        }
+        this.isLoading = true;
+        this.error = undefined;
+        try {
+            // Gather source rows using finalExportQueries for this object (cap for performance)
+            const defs = (this.finalExportQueries || []).filter(d => d && d.objectName === objectName);
+            const MAX_ROWS = 200;
+            const sourceRows = [];
+            for (const def of defs) {
+                if (sourceRows.length >= MAX_ROWS) break;
+                const res = await this.runQueryWithSession(def.soql);
+                const rows = (res && res.rows) || [];
+                for (const r of rows) { sourceRows.push(r); if (sourceRows.length >= MAX_ROWS) break; }
+                if (sourceRows.length >= MAX_ROWS) break;
+            }
+            // For each source row, try to find a match in destination current org
+            const matchedRows = [];
+            const unmatchedRows = [];
+            let matchedCount = 0;
+            for (const row of sourceRows) {
+                if (!row) continue;
+                const whereParts = [];
+                let canMatch = true;
+                for (const f of fields) {
+                    const v = row[f];
+                    if (v === null || v === undefined || v === '') { canMatch = false; break; }
+                    if (typeof v === 'number' || typeof v === 'boolean') {
+                        whereParts.push(`${f} = ${v}`);
+                    } else {
+                        const val = String(v).replace(/'/g, "\\'");
+                        whereParts.push(`${f} = '${val}'`);
+                    }
+                }
+                if (!canMatch || !whereParts.length) { unmatchedRows.push(row); continue; }
+                const soql = `SELECT Id FROM ${objectName} WHERE ${whereParts.join(' AND ')} LIMIT 1`;
+                try {
+                    const destRes = await queryCurrent({ soql });
+                    const rows = (destRes && destRes.rows) || [];
+                    if (rows.length > 0) { matchedRows.push({ source: row, dest: rows[0] }); matchedCount += 1; }
+                    else { unmatchedRows.push(row); }
+                } catch (e) {
+                    unmatchedRows.push(row);
+                }
+            }
+            const counts = { sourceCount: sourceRows.length, destCount: matchedCount, matchedCount };
+            this.matchResultsByObject.set(objectName, { sourceRows, matchedRows, unmatchedRows, counts });
+            this.wizard = { ...this.wizard, step: 'results' };
+        } catch (e) {
+            const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Matching check failed');
+            this.error = msg;
+        } finally {
+            this.isLoading = false;
+        }
+    };
+
+    handleMatchingImport = async () => {
+        const objectName = this.currentWizardObject;
+        const res = this.matchResultsByObject.get(objectName);
+        const unmatched = (res && res.unmatchedRows) || [];
+        if (!objectName || !unmatched.length) return;
+        this.isLoading = true;
+        try {
+            const records = [];
+            for (const row of unmatched) {
+                const out = { Id: row.Id };
+                for (const key of Object.keys(row)) {
+                    if (key === 'Id') continue;
+                    out[key] = row[key];
+                }
+                records.push(out);
+            }
+            const results = await insertRecordsCurrent({ objectName, records });
+            const report = { successCount: 0, errorCount: 0, successes: [], errors: [] };
+            if (Array.isArray(results)) {
+                for (const r of results) {
+                    if (r && r.success) { report.successCount += 1; report.successes.push({ oldId: r.oldId, newId: r.newId }); }
+                    else { report.errorCount += 1; report.errors.push({ oldId: (r && r.oldId) || '', errorMessage: (r && r.errorMessage) || 'Unknown error' }); }
+                }
+            }
+            // Save report and update counts
+            const counts = res.counts || { sourceCount: unmatched.length, destCount: 0, matchedCount: 0 };
+            // After import, consider newly inserted as matched
+            counts.destCount = counts.matchedCount + report.successCount;
+            counts.matchedCount = counts.destCount;
+            this.matchResultsByObject.set(objectName, { ...res, report, counts });
+            this.wizard = { ...this.wizard, step: 'report' };
+        } catch (e) {
+            this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Import failed');
+        } finally {
+            this.isLoading = false;
+        }
+    };
+
+    handleMatchingNext = async () => {
+        if (this.wizard.index >= this.wizard.objects.length - 1) {
+            // Build summary
+            const rows = [];
+            for (const obj of this.wizard.objects) {
+                const r = this.matchResultsByObject.get(obj);
+                const rep = r && r.report;
+                rows.push({ objectName: obj, successCount: rep ? rep.successCount : 0, errorCount: rep ? rep.errorCount : 0 });
+            }
+            this.finalReportRows = rows;
+            this.wizard = { ...this.wizard, step: 'summary' };
+            return;
+        }
+        // Move to next object
+        const nextIndex = this.wizard.index + 1;
+        this.wizard = { ...this.wizard, index: nextIndex, step: 'select' };
+        await this.loadMatchingFieldOptionsFor(this.currentWizardObject);
+    };
+
+    handleMatchingBack = async () => {
+        if (this.wizard.index <= 0) {
+            this.wizard = { ...this.wizard, step: 'select' };
+            return;
+        }
+        const prevIndex = this.wizard.index - 1;
+        this.wizard = { ...this.wizard, index: prevIndex, step: 'select' };
+        await this.loadMatchingFieldOptionsFor(this.currentWizardObject);
+    };
+
+    handleMatchingSave = () => {
+        // no-op: selections auto-saved in state; advance to results for convenience
+        this.wizard = { ...this.wizard, step: 'results' };
+    };
+
+    handleMatchingCheck = this.handleRunMatchingCheck;
+
+    // Build options primarily from fields used in finalExportQueries for this object.
+    // Fallback to destination creatable fields if none found.
+    async loadMatchingFieldOptionsFor(objectName) {
+        if (!objectName) return;
+        // 1) Try from final export queries
+        const queryFields = new Set();
+        try {
+            const defs = (this.finalExportQueries || []).filter(d => d && d.objectName === objectName);
+            for (const d of defs) {
+                const flist = (d && d.fields) || [];
+                for (const f of flist) {
+                    if (!f || f === 'Id') continue;
+                    queryFields.add(f);
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+        let fieldsArr = Array.from(queryFields);
+        // 2) Fallback to creatable fields from destination current org
+        if (fieldsArr.length === 0) {
+            try {
+                const map = await getCreateableFieldsCurrent({ objectNames: [objectName] });
+                fieldsArr = (map && map[objectName]) ? map[objectName].filter(f => f && f !== 'Id') : [];
+            } catch (e2) {
+                fieldsArr = [];
+            }
+        }
+        // Build options
+        const options = fieldsArr.map(f => ({ label: f, value: f }));
+        this.matchingOptionsByObject.set(objectName, options);
+        if (!this.selectedMatchingFieldsByObject.has(objectName)) {
+            const preset = fieldsArr.includes('Name') ? ['Name'] : [];
+            this.selectedMatchingFieldsByObject.set(objectName, preset);
+        }
+    }
 
     handlePlanObjectToggle = (event) => {
         const { nodeId, isSelected } = event.detail || {};
@@ -1064,7 +1341,6 @@ export default class ExternalOrgQuery extends LightningElement {
         }
         return out;
     }
-
     async handleFinalExport() {
         // Require source connectivity for schema discovery if not current org
         if (!this.ensureSourceConnected('Please test connection first')) {
@@ -1124,6 +1400,10 @@ export default class ExternalOrgQuery extends LightningElement {
             }
 
             this.finalExportQueries = queries;
+            // Reset import status/reporting when final queries change
+            this.importStatus = { inProgress: false, currentObject: '', processedObjects: 0, totalObjects: 0, successCount: 0, errorCount: 0, detailedMessages: [] };
+            this.successReportLines = [];
+            this.errorReportLines = [];
             console.log(JSON.stringify({ type: 'FINAL_EXPORT_SOQL', queries }, null, 2));
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Failed to build final export queries');
@@ -1153,6 +1433,20 @@ export default class ExternalOrgQuery extends LightningElement {
         this.isLoading = true;
 
         try {
+            // Initialize progress state
+            const uniqueObjects = Array.from(new Set((this.finalExportQueries || []).map(q => q && q.objectName).filter(Boolean)));
+            this.importStatus = {
+                inProgress: true,
+                currentObject: '',
+                processedObjects: 0,
+                totalObjects: uniqueObjects.length,
+                successCount: 0,
+                errorCount: 0,
+                detailedMessages: []
+            };
+            this.successReportLines = [];
+            this.errorReportLines = [];
+
             // Map of objectName -> Map(oldId -> newId)
             const idRemap = new Map();
             const getTargetMap = (obj) => { if (!idRemap.has(obj)) idRemap.set(obj, new Map()); return idRemap.get(obj); };
@@ -1167,54 +1461,74 @@ export default class ExternalOrgQuery extends LightningElement {
                 return map;
             };
 
-            // Iterate from bottom of the list (last index) to the top
-            for (let i = this.finalExportQueries.length - 1; i >= 0; i -= 1) {
-                const def = this.finalExportQueries[i] || {};
-                const objectName = def.objectName;
-                const soql = def.soql;
-                if (!objectName || !soql) continue;
+            // Group queries by object and iterate bottom-up by object
+            const grouped = new Map();
+            for (const def of this.finalExportQueries) {
+                if (!def || !def.objectName || !def.soql) continue;
+                if (!grouped.has(def.objectName)) grouped.set(def.objectName, []);
+                grouped.get(def.objectName).push(def);
+            }
+            const objectsInReverse = Array.from(grouped.keys()).reverse();
+            for (const objectName of objectsInReverse) {
+                const defs = grouped.get(objectName) || [];
+                this.importStatus.currentObject = objectName;
 
-                // Retrieve data from Source using the stored SOQL
-                const srcResult = await this.runQueryWithSession(soql);
-                const rows = (srcResult && srcResult.rows) || [];
-                if (!rows.length) {
-                    continue;
-                }
-
+                // Collect and insert per each SOQL chunk
                 const refByField = getRefTargetsByField(objectName);
-                const records = [];
-                for (const row of rows) {
-                    if (!row) continue;
-                    const out = { Id: row.Id };
-                    for (const key of Object.keys(row)) {
-                        if (key === 'Id') continue; // never set Id on insert
-                        let value = row[key];
-                        const targetObj = refByField.get(key);
-                        if (targetObj) {
-                            const mapForTarget = idRemap.get(targetObj);
-                            if (mapForTarget) {
-                                if (typeof value === 'string' && mapForTarget.has(value)) {
-                                    value = mapForTarget.get(value);
-                                } else if (Array.isArray(value)) {
-                                    value = value.map((v) => (typeof v === 'string' && mapForTarget.has(v)) ? mapForTarget.get(v) : v);
+                for (const def of defs) {
+                    const soql = def.soql;
+                    // Retrieve data from Source using the stored SOQL
+                    const srcResult = await this.runQueryWithSession(soql);
+                    const rows = (srcResult && srcResult.rows) || [];
+                    if (!rows.length) {
+                        continue;
+                    }
+
+                    const records = [];
+                    for (const row of rows) {
+                        if (!row) continue;
+                        const out = { Id: row.Id };
+                        for (const key of Object.keys(row)) {
+                            if (key === 'Id') continue; // never set Id on insert
+                            let value = row[key];
+                            const targetObj = refByField.get(key);
+                            if (targetObj) {
+                                const mapForTarget = idRemap.get(targetObj);
+                                if (mapForTarget) {
+                                    if (typeof value === 'string' && mapForTarget.has(value)) {
+                                        value = mapForTarget.get(value);
+                                    } else if (Array.isArray(value)) {
+                                        value = value.map((v) => (typeof v === 'string' && mapForTarget.has(v)) ? mapForTarget.get(v) : v);
+                                    }
                                 }
                             }
+                            out[key] = value;
                         }
-                        out[key] = value;
+                        records.push(out);
                     }
-                    records.push(out);
+
+                    // Insert into destination current org using simple DML
+                    const insertResults = await insertRecordsCurrent({ objectName, records });
+                    const mapForObject = getTargetMap(objectName);
+                    if (Array.isArray(insertResults)) {
+                        for (const r of insertResults) {
+                            if (r && r.success && r.oldId && r.newId) {
+                                mapForObject.set(r.oldId, r.newId);
+                                this.importStatus.successCount += 1;
+                                this.successReportLines.push(`${objectName},${r.oldId},${r.newId}`);
+                                this.importStatus.detailedMessages.push(`Inserted ${objectName} ${r.oldId} -> ${r.newId}`);
+                            } else if (r) {
+                                this.importStatus.errorCount += 1;
+                                const msg = r.errorMessage || 'Unknown error';
+                                this.errorReportLines.push(`${objectName},${r.oldId || ''},${msg}`);
+                                this.importStatus.detailedMessages.push(`Failed to insert ${objectName} ${r.oldId || ''}: ${msg}`);
+                            }
+                        }
+                    }
                 }
 
-                // Insert into destination current org using simple DML
-                const insertResults = await insertRecordsCurrent({ objectName, records });
-                const mapForObject = getTargetMap(objectName);
-                if (Array.isArray(insertResults)) {
-                    for (const r of insertResults) {
-                        if (r && r.success && r.oldId && r.newId) {
-                            mapForObject.set(r.oldId, r.newId);
-                        }
-                    }
-                }
+                // One object done
+                this.importStatus.processedObjects += 1;
             }
 
             console.log('Import completed');
@@ -1223,10 +1537,10 @@ export default class ExternalOrgQuery extends LightningElement {
             this.error = msg;
             console.error('Start import error', msg);
         } finally {
+            this.importStatus.inProgress = false;
             this.isLoading = false;
         }
     }
-
     computeExportOrder(edgesByObject, rootObject, idSetKeys = []) {
         // Build nodes, adjacency (parent -> children), and in-degree(children)
         const nodes = new Set(idSetKeys || []);
@@ -1404,8 +1718,3 @@ export default class ExternalOrgQuery extends LightningElement {
         this.destUseCurrent = this.isDestinationCurrentOrg ? 'yes' : 'no';
     };
 }
-
-
-
-
-

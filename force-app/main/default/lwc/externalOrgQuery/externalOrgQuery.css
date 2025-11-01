@@ -28,6 +28,10 @@
     background: linear-gradient(135deg, #fdfefe 0%, #ffffff 100%);
     padding: 0.75rem;
     box-shadow: inset 0 2px 4px rgba(22, 50, 92, 0.05);
+    max-height: 70vh;           /* Constrain height of the plan tree area */
+    overflow: auto;              /* Enable scroll within the tree when needed */
+    width: 100%;                 /* Prevent horizontal overflow */
+    box-sizing: border-box;      /* Include padding in width */
 }
 
 /* allow page/body to scroll; avoid inner scrollbars */
@@ -67,4 +71,18 @@
 /* Subtle visual cue for sections disabled via current org selection */
 .section-disabled {
     opacity: 0.6;
+}
+
+/* Constrain import results area to avoid overflowing the page */
+.import-results-scroll {
+    max-height: 60vh;
+    overflow: auto;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Ensure long pre blocks wrap instead of causing horizontal scroll explosion */
+pre {
+    white-space: pre-wrap;      /* wrap long lines */
+    word-break: break-word;     /* break long tokens like IDs if necessary */
 }
