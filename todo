@@ -1,0 +1,12 @@
+# Todo
+
+- [] Add ability to temporarily disable validation rules.
+- [x] Create a separate application.
+- [] Update the import and export Apex classes to support bulk operations.
+- [] Check for History, Email, Phone, etc. objects.
+- [] Make visual improvements.
+- [] Fix logic bugs.
+- [] For very large numbers of records, implement a solution to store the data.
+- [] Generate a dependency tree of the selected object and its parent objects.
+- [] Add a function to find matching records in the destination org.
+

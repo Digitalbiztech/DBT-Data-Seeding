@@ -365,7 +365,8 @@ public with sharing class ExternalOrgQueryController {
                 for (Object fieldObj : fields) {
                     Map<String, Object> field = (Map<String, Object>) fieldObj;
                     Boolean creatable = (Boolean) field.get('createable');
-                    if (creatable == null || !creatable) {
+                    Boolean defaultedOnCreate = (Boolean) field.get('defaultedOnCreate');
+                    if (creatable == null || !creatable || defaultedOnCreate == null || defaultedOnCreate) {
                         continue;
                     }
                     String fieldName = (String) field.get('name');
@@ -608,7 +609,7 @@ public with sharing class ExternalOrgQueryController {
                     Schema.DescribeFieldResult fd = f.getDescribe();
                     if (fd.getType() == Schema.DisplayType.Reference && String.isNotBlank(fd.getRelationshipName())) {
                         List<Schema.SObjectType> rTo = fd.getReferenceTo();
-                        if (rTo != null && !rTo.isEmpty() && fd.isCreateable()) {
+                        if (rTo != null && !rTo.isEmpty() && fd.isCreateable() && !fd.isDefaultedOnCreate()) {
                             String parentName = rTo[0].getDescribe().getName();
                             if (!excluded.contains(parentName)) {
                                 DependencyNode parentNode = new DependencyNode(parentName, fd.getName());
@@ -657,7 +658,7 @@ public with sharing class ExternalOrgQueryController {
             List<String> fields = new List<String>();
             for (Schema.SObjectField f : d.fields.getMap().values()) {
                 Schema.DescribeFieldResult fd = f.getDescribe();
-                if (fd.isCreateable()) {
+                if (fd.isCreateable() && !fd.isDefaultedOnCreate()) {
                     fields.add(fd.getName());
                 }
             }
