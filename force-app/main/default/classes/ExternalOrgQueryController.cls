@@ -219,9 +219,133 @@ public with sharing class ExternalOrgQueryController {
             excludedObjects = new List<String>();
         }
         
-        Set<String> visited = new Set<String>();
         Set<String> excludedSet = new Set<String>(excludedObjects);
+        
+        // 1. Pre-fetch metadata using BFS and Composite API to avoid N+1 callouts
+        prefetchMetadata(sessionId, instanceUrl, objectName, maxDepth, excludedSet);
+
+        // 2. Build tree from cache (no callouts)
+        Set<String> visited = new Set<String>();
         return buildDependencyTree(sessionId, instanceUrl, objectName, visited, maxDepth, excludedSet, 0);
+    }
+
+    private static void prefetchMetadata(String sessionId, String instanceUrl, String rootObject, Integer maxDepth, Set<String> excludedObjects) {
+        Set<String> currentLevel = new Set<String>{rootObject};
+        Set<String> visited = new Set<String>();
+        Set<String> allToDescribe = new Set<String>();
+
+        // BFS to collect all objects that need description
+        for (Integer depth = 0; depth <= maxDepth; depth++) {
+            Set<String> nextLevel = new Set<String>();
+            Set<String> neededDescriptions = new Set<String>();
+
+            for (String obj : currentLevel) {
+                if (visited.contains(obj) || excludedObjects.contains(obj)) continue;
+                visited.add(obj);
+                if (!describeCache.containsKey(obj)) {
+                    neededDescriptions.add(obj);
+                } else {
+                    // If already cached (e.g. from previous run), we still need to parse it to find next level
+                    collectParents(describeCache.get(obj), nextLevel, excludedObjects);
+                }
+            }
+
+            if (!neededDescriptions.isEmpty()) {
+                // Batch describe the needed objects
+                executeBatchDescribe(sessionId, instanceUrl, neededDescriptions);
+                
+                // After describing, parse them to find the next level of parents
+                for (String obj : neededDescriptions) {
+                    Map<String, Object> description = describeCache.get(obj);
+                    collectParents(description, nextLevel, excludedObjects);
+                }
+            }
+            
+            if (nextLevel.isEmpty()) break;
+            currentLevel = nextLevel;
+        }
+    }
+
+    private static void collectParents(Map<String, Object> description, Set<String> nextLevel, Set<String> excludedObjects) {
+        if (description == null) return;
+        List<Object> fields = (List<Object>) description.get('fields');
+        if (fields != null) {
+            for (Object fieldObj : fields) {
+                Map<String, Object> field = (Map<String, Object>) fieldObj;
+                String fieldType = (String) field.get('type');
+                List<Object> referenceTo = (List<Object>) field.get('referenceTo');
+                Boolean createable = (Boolean) field.get('createable');
+                
+                if (fieldType == 'reference' && referenceTo != null && createable == true) {
+                    for (Object ref : referenceTo) {
+                        String parentName = (String) ref;
+                        if (!excludedObjects.contains(parentName)) {
+                            nextLevel.add(parentName);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void executeBatchDescribe(String sessionId, String instanceUrl, Set<String> objectNames) {
+        List<String> batch = new List<String>();
+        for (String obj : objectNames) {
+            batch.add(obj);
+            if (batch.size() == 25) { // Composite subrequest limit
+                sendBatchRequest(sessionId, instanceUrl, batch);
+                batch.clear();
+            }
+        }
+        if (!batch.isEmpty()) {
+            sendBatchRequest(sessionId, instanceUrl, batch);
+        }
+    }
+
+    private static void sendBatchRequest(String sessionId, String instanceUrl, List<String> objectNames) {
+        Map<String, Object> requestBody = new Map<String, Object>();
+        List<Map<String, Object>> batchRequests = new List<Map<String, Object>>();
+        
+        for (String obj : objectNames) {
+            Map<String, Object> req = new Map<String, Object>();
+            req.put('method', 'GET');
+            req.put('url', '/services/data/v62.0/sobjects/' + obj + '/describe/');
+            req.put('referenceId', obj);
+            batchRequests.add(req);
+        }
+        requestBody.put('batchRequests', batchRequests);
+
+        HttpRequest request = new HttpRequest();
+        request.setMethod('POST');
+        request.setEndpoint(instanceUrl + '/services/data/v62.0/composite/batch');
+        request.setHeader('Authorization', 'Bearer ' + sessionId);
+        request.setHeader('Content-Type', 'application/json');
+        request.setBody(JSON.serialize(requestBody));
+
+        Http http = new Http();
+        HTTPResponse response = http.send(request);
+
+        if (response.getStatusCode() >= 200 && response.getStatusCode() < 300) {
+            Map<String, Object> responseBody = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
+            List<Object> results = (List<Object>) responseBody.get('results');
+            if (results != null) {
+                for (Object resObj : results) {
+                    Map<String, Object> res = (Map<String, Object>) resObj;
+                    Integer statusCode = (Integer) res.get('statusCode');
+                    String refId = (String) res.get('referenceId'); // This is the object name
+                    
+                    if (statusCode >= 200 && statusCode < 300) {
+                        Map<String, Object> result = (Map<String, Object>) res.get('result');
+                        describeCache.put(refId, result);
+                    } else {
+                        System.debug('Failed to describe ' + refId + ' in batch: ' + res.get('result'));
+                        describeCache.put(refId, null); // Prevent retry
+                    }
+                }
+            }
+        } else {
+            System.debug('Batch describe callout failed: ' + response.getStatus());
+        }
     }
 
     private static DependencyNode buildDependencyTree(String sessionId, String instanceUrl, String objectName, Set<String> visited, Integer maxDepth, Set<String> excludedObjects, Integer currentDepth) {
@@ -247,6 +371,7 @@ public with sharing class ExternalOrgQueryController {
         rootNode.fieldName = '';
 
         try {
+            // This will now hit the cache populated by prefetchMetadata
             Map<String, Object> untyped = describeSObject(sessionId, instanceUrl, objectName);
             if (untyped == null) {
                 System.debug('Describe returned null for object ' + objectName);
@@ -267,23 +392,30 @@ public with sharing class ExternalOrgQueryController {
                     
                     // Check if this is a lookup or master-detail relationship
                     if (fieldType == 'reference' && String.isNotBlank(relationshipName) && referenceTo != null && !referenceTo.isEmpty() && createable != null && createable) {
-                        System.debug('Adding dependency for: ' + objectName + ' -> ' + relationshipName);
-                        String parentObjectName = (String) referenceTo[0];
                         String fieldName = (String) field.get('name');
                         
-                        DependencyNode parentNode = new DependencyNode(parentObjectName, fieldName);
-                        parentNode.relationshipType = 'Lookup';
-                        // Required if non-nillable and not defaulted on create
-                        parentNode.isRequired = (nillable == false) && (defaultedOnCreate != true);
-                        
-                        // Recursively get parent dependencies with depth control
-                        DependencyNode parentTree = buildDependencyTree(sessionId, instanceUrl, parentObjectName, visited, maxDepth, excludedObjects, currentDepth + 1);
-                        if (parentTree != null) {
-                            parentNode.parents = parentTree.parents;
-                            parentNode.children = parentTree.children;
+                        // Handle polymorphic fields by iterating over all referenced objects
+                        for (Object ref : referenceTo) {
+                            String parentObjectName = (String) ref;
+                            if (excludedObjects.contains(parentObjectName)) continue;
+
+                            System.debug('Adding dependency for: ' + objectName + ' -> ' + relationshipName + ' (' + parentObjectName + ')');
+                            
+                            DependencyNode parentNode = new DependencyNode(parentObjectName, fieldName);
+                            parentNode.relationshipType = 'Lookup';
+                            // Required if non-nillable and not defaulted on create
+                            parentNode.isRequired = (nillable == false) && (defaultedOnCreate != true);
+                            
+                            // Recursively get parent dependencies with depth control
+                            // Since we prefetched, these calls won't make new HTTP requests
+                            DependencyNode parentTree = buildDependencyTree(sessionId, instanceUrl, parentObjectName, visited, maxDepth, excludedObjects, currentDepth + 1);
+                            if (parentTree != null) {
+                                parentNode.parents = parentTree.parents;
+                                parentNode.children = parentTree.children;
+                            }
+                            
+                            rootNode.parents.add(parentNode);
                         }
-                        
-                        rootNode.parents.add(parentNode);
                     }
                 }
             }
@@ -723,6 +855,270 @@ public with sharing class ExternalOrgQueryController {
                 }
             }
             out.add(m);
+        }
+        return out;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static List<InsertMapping> updateRecordsCurrent(String objectName, List<Map<String, Object>> records) {
+        if (String.isBlank(objectName)) {
+            throw new AuraHandledException('objectName is required');
+        }
+        List<InsertMapping> out = new List<InsertMapping>();
+        if (records == null || records.isEmpty()) {
+            return out;
+        }
+        Schema.SObjectType t = Schema.getGlobalDescribe().get(objectName);
+        if (t == null) {
+            throw new AuraHandledException('Unknown sObject: ' + objectName);
+        }
+        List<SObject> toUpdate = new List<SObject>();
+        List<String> targetIds = new List<String>();
+        for (Map<String, Object> rec : records) {
+            if (rec == null) continue;
+            SObject sobj = t.newSObject();
+            String targetId = (rec.containsKey('Id') && rec.get('Id') != null) ? String.valueOf(rec.get('Id')) : null;
+            if (String.isBlank(targetId)) {
+                // Skip records without Id for update
+                continue; 
+            }
+            targetIds.add(targetId);
+            
+            for (String key : rec.keySet()) {
+                try {
+                    // For update, we usually want to set Id plus other fields
+                    sobj.put(key, rec.get(key));
+                } catch (Exception e) {
+                    // Ignore
+                }
+            }
+            toUpdate.add(sobj);
+        }
+        
+        if (toUpdate.isEmpty()) {
+            return out;
+        }
+
+        Database.SaveResult[] results = Database.update(toUpdate, false);
+        for (Integer i = 0; i < results.size(); i++) {
+            InsertMapping m = new InsertMapping();
+            m.oldId = i < targetIds.size() ? targetIds[i] : null; // "oldId" here represents the ID being updated
+            Database.SaveResult sr = results[i];
+            if (sr.isSuccess()) {
+                m.success = true;
+                m.newId = (String) sr.getId();
+            } else {
+                m.success = false;
+                if (sr.getErrors() != null && sr.getErrors().size() > 0) {
+                    m.errorMessage = sr.getErrors()[0].getMessage();
+                } else {
+                    m.errorMessage = 'Unknown DML error';
+                }
+            }
+            out.add(m);
+        }
+        return out;
+    }
+
+    // =====================
+    // Remote (REST) Write Operations
+    // =====================
+
+    @AuraEnabled(cacheable=false)
+    public static List<InsertMapping> createRecordsRemote(String sessionId, String instanceUrl, String objectName, List<Map<String, Object>> records) {
+        return executeRemoteComposite(sessionId, instanceUrl, objectName, records, 'POST');
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static List<InsertMapping> updateRecordsRemote(String sessionId, String instanceUrl, String objectName, List<Map<String, Object>> records) {
+        return executeRemoteComposite(sessionId, instanceUrl, objectName, records, 'PATCH');
+    }
+
+    public class MatchResult {
+        @AuraEnabled public String sourceId;
+        @AuraEnabled public String destId;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static List<MatchResult> findMatchingRecords(
+        String sessionId, 
+        String instanceUrl, 
+        String objectName, 
+        List<String> matchFields, 
+        List<Map<String, Object>> sourceRecords
+    ) {
+        List<MatchResult> results = new List<MatchResult>();
+        if (sourceRecords == null || sourceRecords.isEmpty() || matchFields == null || matchFields.isEmpty()) {
+            return results;
+        }
+
+        // 1. Collect values for filtering
+        // Map<FieldName, Set<Value>>
+        Map<String, Set<String>> fieldValues = new Map<String, Set<String>>();
+        for (String f : matchFields) {
+            fieldValues.put(f, new Set<String>());
+        }
+
+        for (Map<String, Object> row : sourceRecords) {
+            for (String f : matchFields) {
+                Object val = row.get(f);
+                if (val != null) {
+                    fieldValues.get(f).add(String.valueOf(val));
+                }
+            }
+        }
+
+        // 2. Build Query
+        // "SELECT Id, Name, Email FROM Contact WHERE Name IN :names AND Email IN :emails"
+        String selectClause = 'Id, ' + String.join(matchFields, ', ');
+        String whereClause = '';
+        
+        for (String f : matchFields) {
+            Set<String> vals = fieldValues.get(f);
+            if (vals.isEmpty()) continue;
+            
+            // For query construction, we need to escape and format. 
+            // Note: Large lists might hit query length limits, so caller should chunk sourceRecords (e.g. 200 at a time).
+            List<String> quoted = new List<String>();
+            for (String v : vals) {
+                quoted.add('\'' + String.escapeSingleQuotes(v) + '\'' );
+            }
+            
+            if (whereClause.length() > 0) whereClause += ' AND ';
+            whereClause += f + ' IN (' + String.join(quoted, ',') + ')';
+        }
+
+        if (String.isBlank(whereClause)) {
+            // No filterable values found (all nulls?), return empty or risk full table scan (unsafe)
+            return results;
+        }
+
+        String soql = 'SELECT ' + selectClause + ' FROM ' + objectName + ' WHERE ' + whereClause + ' LIMIT 10000';
+        
+        // 3. Execute Query
+        List<Map<String, Object>> destRows = new List<Map<String, Object>>();
+        
+        if (String.isNotBlank(sessionId) && String.isNotBlank(instanceUrl)) {
+            // Remote
+            QueryResultWrapper qr = queryWithSession(sessionId, instanceUrl, soql);
+            if (qr != null && qr.rows != null) {
+                destRows = qr.rows;
+            }
+        } else {
+            // Local
+            for (SObject s : Database.query(soql)) {
+                Map<String, Object> r = new Map<String, Object>();
+                r.put('Id', s.Id);
+                for (String f : matchFields) {
+                    // Handle potential relation traversal like 'Parent.Name' if needed, 
+                    // but for now assume flat fields as per UI
+                    try {
+                        r.put(f, s.get(f));
+                    } catch (Exception e) { /* ignore */ }
+                }
+                destRows.add(r);
+            }
+        }
+
+        // 4. In-Memory Match
+        // Build map of Key -> DestId
+        // Key logic: join values with pipe or similar. Handle nulls.
+        Map<String, String> destMap = new Map<String, String>();
+        for (Map<String, Object> d : destRows) {
+            String key = generateCompositeKey(d, matchFields);
+            if (!destMap.containsKey(key)) {
+                destMap.put(key, (String) d.get('Id'));
+            }
+        }
+
+        // 5. Match Source
+        for (Map<String, Object> s : sourceRecords) {
+            String key = generateCompositeKey(s, matchFields);
+            if (destMap.containsKey(key)) {
+                MatchResult mr = new MatchResult();
+                mr.sourceId = (String) s.get('Id');
+                mr.destId = destMap.get(key);
+                results.add(mr);
+            }
+        }
+
+        return results;
+    }
+
+    private static String generateCompositeKey(Map<String, Object> record, List<String> fields) {
+        List<String> parts = new List<String>();
+        for (String f : fields) {
+            Object v = record.get(f);
+            parts.add(v == null ? '' : String.valueOf(v));
+        }
+        return String.join(parts, '|');
+    }
+
+    private static List<InsertMapping> executeRemoteComposite(String sessionId, String instanceUrl, String objectName, List<Map<String, Object>> records, String method) {
+        if (String.isBlank(sessionId) || String.isBlank(instanceUrl) || String.isBlank(objectName)) {
+            throw new AuraHandledException('SessionId, InstanceUrl, and ObjectName are required.');
+        }
+        List<InsertMapping> out = new List<InsertMapping>();
+        if (records == null || records.isEmpty()) return out;
+
+        // Prepare request body: { "allOrNone": false, "records": [...] }
+        // For REST, type attributes are usually handled automatically if structure is right, 
+        // but explicit attributes {"type": "Account"} helps.
+        List<Map<String, Object>> payloadRecords = new List<Map<String, Object>>();
+        List<String> trackingIds = new List<String>(); // Track input IDs (if any) to map back to results
+
+        for (Map<String, Object> r : records) {
+            Map<String, Object> rec = new Map<String, Object>(r);
+            // Ensure attributes
+            Map<String, String> attributes = new Map<String, String>{ 'type' => objectName };
+            rec.put('attributes', attributes);
+            payloadRecords.add(rec);
+            
+            // For mapping results back:
+            // For insert, usually we track the Source ID provided in input (if logic passes it).
+            // For update, we track the Id being updated.
+            String tid = r.containsKey('Id') ? String.valueOf(r.get('Id')) : null;
+            trackingIds.add(tid);
+        }
+
+        Map<String, Object> requestBody = new Map<String, Object>();
+        requestBody.put('allOrNone', false);
+        requestBody.put('records', payloadRecords);
+
+        HttpRequest req = new HttpRequest();
+        req.setMethod(method); // POST or PATCH
+        req.setEndpoint(instanceUrl + '/services/data/v62.0/composite/sobjects');
+        req.setHeader('Authorization', 'Bearer ' + sessionId);
+        req.setHeader('Content-Type', 'application/json');
+        req.setBody(JSON.serialize(requestBody));
+
+        Http http = new Http();
+        HttpResponse res = http.send(req);
+
+        if (res.getStatusCode() >= 200 && res.getStatusCode() < 300) {
+            // Response is List<Object> directly for composite/sobjects
+            List<Object> results = (List<Object>) JSON.deserializeUntyped(res.getBody());
+            for (Integer i = 0; i < results.size(); i++) {
+                Map<String, Object> result = (Map<String, Object>) results[i];
+                InsertMapping m = new InsertMapping();
+                m.oldId = (i < trackingIds.size()) ? trackingIds[i] : null;
+                Boolean success = (Boolean) result.get('success');
+                m.success = success;
+                if (success == true) {
+                    m.newId = (String) result.get('id');
+                } else {
+                    List<Object> errors = (List<Object>) result.get('errors');
+                    if (errors != null && !errors.isEmpty()) {
+                        Map<String, Object> err = (Map<String, Object>) errors[0];
+                        m.errorMessage = (String) err.get('message');
+                    } else {
+                        m.errorMessage = 'Unknown remote error';
+                    }
+                }
+                out.add(m);
+            }
+        } else {
+            throw new AuraHandledException('Remote ' + method + ' failed: ' + res.getStatus() + ' ' + res.getBody());
         }
         return out;
     }

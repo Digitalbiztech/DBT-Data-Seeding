@@ -255,7 +255,6 @@
                                 variant="brand"
                                 label="Import All"
                                 onclick={handleStartImport}
-                                disabled={isStartImportDisabled}
                             ></lightning-button>
 
                             <!-- Matching UI (legacy) -->
@@ -302,6 +301,20 @@
                                             <template if:true={isMatchingStepSelect}>
                                                 <template if:true={currentWizardObject}>
                                                     <div class="slds-m-bottom_small slds-text-title_caps">Select matching fields &mdash; {currentWizardObject}</div>
+                                                    
+                                                    <template if:true={hasSchemaWarnings}>
+                                                        <div class="slds-box slds-theme_warning slds-theme_alert-texture slds-m-bottom_small">
+                                                            <div class="slds-text-body_small">
+                                                                <strong>Schema Mismatch:</strong> The following fields exist in Source but <strong>NOT</strong> in Destination. They will be skipped during import:
+                                                            </div>
+                                                            <div class="slds-text-body_small slds-m-top_xx-small">
+                                                                <template for:each={currentSchemaWarnings} for:item="f">
+                                                                    <span key={f} class="slds-badge slds-theme_warning slds-m-right_xx-small">{f}</span>
+                                                                </template>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+
                                                     <div class="slds-text-body_small slds-m-bottom_x-small">Object {wizardProgressText}</div>
                                                     <lightning-dual-listbox
                                                         name={currentWizardObject}
@@ -364,7 +377,10 @@
                                                         <div class="slds-box slds-theme_success slds-m-bottom_small">
                                                             <div class="slds-text-title_bold">Successes</div>
                                                             <template for:each={currentReport.successes} for:item="s">
-                                                                <div key={s.oldId} class="slds-text-body_small">{s.oldId} &rarr; {s.newId}</div>
+                                                                <div key={s.oldId} class="slds-text-body_small">
+                                                                    <template if:true={s.type}><strong>{s.type}:</strong> </template>
+                                                                    {s.oldId} &rarr; {s.newId}
+                                                                </div>
                                                             </template>
                                                         </div>
                                                     </template>
@@ -415,12 +431,23 @@
                                         </div>
                                         <footer class="slds-modal__footer">
                                             <template if:true={isMatchingStepSelect}>
-                                                <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
-                                                <lightning-button class="slds-m-left_small" variant="brand" label="Check" onclick={handleMatchingCheck} disabled={isMatchingCheckDisabled}></lightning-button>
+                                                <div class="slds-grid slds-grid_align-spread">
+                                                    <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
+                                                    <div>
+                                                        <lightning-button variant="neutral" label="Previous Object" onclick={handlePrevObject} disabled={isFirstObject}></lightning-button>
+                                                        <lightning-button class="slds-m-left_small" variant="brand" label="Check" onclick={handleMatchingCheck} disabled={isMatchingCheckDisabled}></lightning-button>
+                                                    </div>
+                                                </div>
                                             </template>
                                             <template if:true={isMatchingStepResults}>
-                                                <lightning-button variant="neutral" label="Back" onclick={handleMatchingBack} disabled={isLoading}></lightning-button>
-                                                <lightning-button class="slds-m-left_small" variant="brand" label={currentImportButtonLabel} onclick={handleMatchingImport} disabled={isMatchingImportDisabled}></lightning-button>
+                                                <div class="slds-grid slds-grid_align-spread">
+                                                    <lightning-button variant="neutral" label="Back to Select" onclick={handleStepBack} disabled={isLoading}></lightning-button>
+                                                    <div>
+                                                        <lightning-button variant="neutral" label="Next Object" onclick={handleMatchingNext} disabled={isLoading}></lightning-button>
+                                                        <lightning-button class="slds-m-left_x-small" variant="brand-outline" label="Sync (Upsert)" onclick={handleMatchingUpsert} disabled={isMatchingUpsertDisabled} title="Inserts unmatched and updates matched records"></lightning-button>
+                                                        <lightning-button class="slds-m-left_x-small" variant="brand" label={currentImportButtonLabel} onclick={handleMatchingImport} disabled={isMatchingImportDisabled}></lightning-button>
+                                                    </div>
+                                                </div>
                                             </template>
                                             <template if:true={isMatchingStepReport}>
                                                 <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
@@ -473,7 +500,7 @@
                                         <template if:true={hasSuccessReport}>
                                             <div class="slds-box slds-theme_success slds-m-bottom_small">
                                                 <div class="slds-text-heading_small slds-m-bottom_x-small">Success Report</div>
-                                                <pre class="slds-text-body_small">{formattedSuccessReport}</pre>
+                                                <lightning-formatted-rich-text class="slds-text-body_small" value={formattedSuccessReport}></lightning-formatted-rich-text>
                                             </div>
                                         </template>
                                         

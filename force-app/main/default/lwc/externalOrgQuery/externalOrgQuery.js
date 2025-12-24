@@ -10,6 +10,10 @@ import getObjectDependenciesCurrent from '@salesforce/apex/ExternalOrgQueryContr
 import getCreateableFieldsCurrent from '@salesforce/apex/ExternalOrgQueryController.getCreateableFieldsCurrent';
 import queryCurrent from '@salesforce/apex/ExternalOrgQueryController.queryCurrent';
 import insertRecordsCurrent from '@salesforce/apex/ExternalOrgQueryController.insertRecordsCurrent';
+import updateRecordsCurrent from '@salesforce/apex/ExternalOrgQueryController.updateRecordsCurrent';
+import createRecordsRemote from '@salesforce/apex/ExternalOrgQueryController.createRecordsRemote';
+import updateRecordsRemote from '@salesforce/apex/ExternalOrgQueryController.updateRecordsRemote';
+import findMatchingRecords from '@salesforce/apex/ExternalOrgQueryController.findMatchingRecords';
 
 export default class ExternalOrgQuery extends LightningElement {
     // UI state for external org connection and query execution
@@ -51,6 +55,7 @@ export default class ExternalOrgQuery extends LightningElement {
     matchingOptionsByObject = new Map(); // object -> [{label,value}]
     selectedMatchingFieldsByObject = new Map(); // object -> [field]
     matchResultsByObject = new Map(); // object -> { sourceRows, matchedRows, unmatchedRows, counts, report }
+    @track schemaWarnings = new Map(); // object -> [missing fields]
     @track finalReportRows = [];
     // Import status + reporting (used by template)
     @track importStatus = {
@@ -341,8 +346,8 @@ export default class ExternalOrgQuery extends LightningElement {
     }
 
     get isStartImportDisabled() {
-        // For now, support import only when Destination is current org
-        return !this.hasFinalQueries || this.isLoading || !this.isDestinationCurrentOrg;
+        // Support import if Destination is connected (Current or Remote)
+        return !this.hasFinalQueries || this.isLoading || !this.isDestinationConnected;
     }
 
     // Import UI computed getters
@@ -360,7 +365,7 @@ export default class ExternalOrgQuery extends LightningElement {
     }
     get hasSuccessReport() { return (this.successReportLines && this.successReportLines.length > 0); }
     get hasErrorReport() { return (this.errorReportLines && this.errorReportLines.length > 0); }
-    get formattedSuccessReport() { return (this.successReportLines || []).join('\n'); }
+    get formattedSuccessReport() { return (this.successReportLines || []).join('<br/>'); }
     get formattedErrorReport() { return (this.errorReportLines || []).join('\n'); }
 
     handlePlanNodeToggle = (event) => {
@@ -875,6 +880,8 @@ export default class ExternalOrgQuery extends LightningElement {
     get isMatchingStepReport() { return this.showMatchingUIWizard && this.wizard.step === 'report'; }
     get isMatchingStepSummary() { return this.showMatchingUIWizard && this.wizard.step === 'summary'; }
     get currentWizardObject() { return (this.wizard.objects[this.wizard.index]) || ''; }
+    get currentSchemaWarnings() { return this.schemaWarnings.get(this.currentWizardObject) || []; }
+    get hasSchemaWarnings() { return this.currentSchemaWarnings.length > 0; }
     get currentMatchingObject() { return { objectName: this.currentWizardObject }; }
     get wizardProgressText() { const i=this.wizard.index+1; const n=this.wizard.objects.length||0; return `${i} of ${n}`; }
     get totalWizardObjectCount() { return this.wizard.objects.length || 0; }
@@ -898,10 +905,10 @@ export default class ExternalOrgQuery extends LightningElement {
     get nextButtonLabel() { return (this.wizard.index >= this.wizard.objects.length - 1) ? 'Finish' : 'Next'; }
     get isMatchingCheckDisabled() {
         const fields = this.currentSelectedFields;
-        return !this.isDestinationCurrentOrg || this.isLoading || !(fields && fields.length);
+        return !this.isDestinationConnected || this.isLoading || !(fields && fields.length);
     }
     get isMatchingImportDisabled() {
-        return !this.isDestinationCurrentOrg || this.isLoading || !this.hasUnmatchedForCurrent;
+        return !this.isDestinationConnected || this.isLoading || !this.hasUnmatchedForCurrent;
     }
 
     // Matching wizard: handlers
@@ -910,8 +917,8 @@ export default class ExternalOrgQuery extends LightningElement {
             this.error = 'Run Final Export first';
             return;
         }
-        if (!this.isDestinationCurrentOrg) {
-            this.error = 'Check & Import requires Destination = Use Current Org';
+        if (!this.isDestinationConnected) {
+            this.error = 'Check & Import requires a connected Destination';
             return;
         }
         this.error = undefined;
@@ -954,7 +961,7 @@ export default class ExternalOrgQuery extends LightningElement {
         try {
             // Gather source rows using finalExportQueries for this object (cap for performance)
             const defs = (this.finalExportQueries || []).filter(d => d && d.objectName === objectName);
-            const MAX_ROWS = 200;
+            const MAX_ROWS = 2000;
             const sourceRows = [];
             for (const def of defs) {
                 if (sourceRows.length >= MAX_ROWS) break;
@@ -963,35 +970,53 @@ export default class ExternalOrgQuery extends LightningElement {
                 for (const r of rows) { sourceRows.push(r); if (sourceRows.length >= MAX_ROWS) break; }
                 if (sourceRows.length >= MAX_ROWS) break;
             }
-            // For each source row, try to find a match in destination current org
+
+            // Bulk Match via Apex
+            // Process in chunks to avoid Apex heap/string limits on the input list
+            const BATCH_SIZE = 200;
+            const destIdBySourceId = new Map();
+            
+            for (let i = 0; i < sourceRows.length; i += BATCH_SIZE) {
+                const chunk = sourceRows.slice(i, i + BATCH_SIZE);
+                
+                // Determine destination connection details
+                // If Current Org, pass nulls to signal local query
+                const sess = this.isDestinationCurrentOrg ? null : this.destSessionId;
+                const url = this.isDestinationCurrentOrg ? null : this.destInstanceUrl;
+
+                const results = await findMatchingRecords({
+                    sessionId: sess,
+                    instanceUrl: url,
+                    objectName: objectName,
+                    matchFields: fields,
+                    sourceRecords: chunk
+                });
+
+                if (Array.isArray(results)) {
+                    for (const m of results) {
+                        if (m && m.sourceId && m.destId) {
+                            destIdBySourceId.set(m.sourceId, m.destId);
+                        }
+                    }
+                }
+            }
+
+            // Separate matched vs unmatched
             const matchedRows = [];
             const unmatchedRows = [];
             let matchedCount = 0;
+
             for (const row of sourceRows) {
                 if (!row) continue;
-                const whereParts = [];
-                let canMatch = true;
-                for (const f of fields) {
-                    const v = row[f];
-                    if (v === null || v === undefined || v === '') { canMatch = false; break; }
-                    if (typeof v === 'number' || typeof v === 'boolean') {
-                        whereParts.push(`${f} = ${v}`);
-                    } else {
-                        const val = String(v).replace(/'/g, "\\'");
-                        whereParts.push(`${f} = '${val}'`);
-                    }
-                }
-                if (!canMatch || !whereParts.length) { unmatchedRows.push(row); continue; }
-                const soql = `SELECT Id FROM ${objectName} WHERE ${whereParts.join(' AND ')} LIMIT 1`;
-                try {
-                    const destRes = await queryCurrent({ soql });
-                    const rows = (destRes && destRes.rows) || [];
-                    if (rows.length > 0) { matchedRows.push({ source: row, dest: rows[0] }); matchedCount += 1; }
-                    else { unmatchedRows.push(row); }
-                } catch (e) {
+                const srcId = row.Id;
+                if (destIdBySourceId.has(srcId)) {
+                    matchedRows.push({ source: row, dest: { Id: destIdBySourceId.get(srcId) } });
+                    matchedCount++;
+                } else {
                     unmatchedRows.push(row);
                 }
             }
+
             const counts = { sourceCount: sourceRows.length, destCount: matchedCount, matchedCount };
             this.matchResultsByObject.set(objectName, { sourceRows, matchedRows, unmatchedRows, counts });
             this.wizard = { ...this.wizard, step: 'results' };
@@ -1019,7 +1044,10 @@ export default class ExternalOrgQuery extends LightningElement {
                 }
                 records.push(out);
             }
-            const results = await insertRecordsCurrent({ objectName, records });
+            const results = await this.routeDestinationCall(
+                () => insertRecordsCurrent({ objectName, records }),
+                () => createRecordsRemote({ sessionId: this.destSessionId, instanceUrl: this.destInstanceUrl, objectName, records })
+            );
             const report = { successCount: 0, errorCount: 0, successes: [], errors: [] };
             if (Array.isArray(results)) {
                 for (const r of results) {
@@ -1036,6 +1064,103 @@ export default class ExternalOrgQuery extends LightningElement {
             this.wizard = { ...this.wizard, step: 'report' };
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Import failed');
+        } finally {
+            this.isLoading = false;
+        }
+    };
+
+    get isFirstObject() { return this.wizard.index === 0; }
+
+    get isMatchingUpsertDisabled() {
+        return !this.isDestinationCurrentOrg || this.isLoading || (!this.hasUnmatchedForCurrent && (!this.currentResult.matchedRows || !this.currentResult.matchedRows.length));
+    }
+
+    handleMatchingUpsert = async () => {
+        const objectName = this.currentWizardObject;
+        const res = this.matchResultsByObject.get(objectName);
+        const unmatched = (res && res.unmatchedRows) || [];
+        const matched = (res && res.matchedRows) || [];
+        
+        if (!objectName || (!unmatched.length && !matched.length)) return;
+        
+        this.isLoading = true;
+        try {
+            const report = { successCount: 0, errorCount: 0, successes: [], errors: [] };
+            
+            // 1. Insert Unmatched
+            if (unmatched.length > 0) {
+                const records = unmatched.map(row => {
+                    const out = { Id: row.Id };
+                    for (const key of Object.keys(row)) {
+                        if (key === 'Id') continue;
+                        out[key] = row[key];
+                    }
+                    return out;
+                });
+                
+                const results = await this.routeDestinationCall(
+                    () => insertRecordsCurrent({ objectName, records }),
+                    () => createRecordsRemote({ sessionId: this.destSessionId, instanceUrl: this.destInstanceUrl, objectName, records })
+                );
+
+                if (Array.isArray(results)) {
+                    for (const r of results) {
+                        if (r && r.success) { 
+                            report.successCount += 1; 
+                            report.successes.push({ oldId: r.oldId, newId: r.newId, type: 'Insert' }); 
+                        } else { 
+                            report.errorCount += 1; 
+                            report.errors.push({ oldId: (r && r.oldId) || '', errorMessage: (r && r.errorMessage) || 'Unknown error', type: 'Insert' }); 
+                        }
+                    }
+                }
+            }
+
+            // 2. Update Matched
+            if (matched.length > 0) {
+                // matched is [{source, dest}]
+                const recordsToUpdate = matched.map(m => {
+                    const out = { Id: m.dest.Id }; // Use Destination ID for update
+                    for (const key of Object.keys(m.source)) {
+                        if (key === 'Id') continue; // Don't overwrite ID with source ID
+                        // We could selectively ignore nulls here if we wanted "partial update", 
+                        // but "Upsert" usually implies "make target look like source".
+                        // Note: SObject fields not in the map won't be touched.
+                        out[key] = m.source[key];
+                    }
+                    return out;
+                });
+                
+                const results = await this.routeDestinationCall(
+                    () => updateRecordsCurrent({ objectName, records: recordsToUpdate }),
+                    () => updateRecordsRemote({ sessionId: this.destSessionId, instanceUrl: this.destInstanceUrl, objectName, records: recordsToUpdate })
+                );
+
+                if (Array.isArray(results)) {
+                    results.forEach((r, idx) => {
+                        // Map back to Source ID for reporting consistency
+                        const sourceId = matched[idx].source.Id;
+                        if (r && r.success) {
+                            report.successCount += 1;
+                            report.successes.push({ oldId: sourceId, newId: r.newId, type: 'Update' });
+                        } else {
+                            report.errorCount += 1;
+                            report.errors.push({ oldId: sourceId, errorMessage: (r && r.errorMessage) || 'Unknown error', type: 'Update' });
+                        }
+                    });
+                }
+            }
+
+            // Save report and update counts
+            const counts = res.counts || { sourceCount: 0, destCount: 0, matchedCount: 0 };
+            // After upsert, destination count conceptually matches source (if all successful)
+            // But let's just track that we processed them.
+            
+            this.matchResultsByObject.set(objectName, { ...res, report, counts });
+            this.wizard = { ...this.wizard, step: 'report' };
+
+        } catch (e) {
+            this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Upsert failed');
         } finally {
             this.isLoading = false;
         }
@@ -1060,14 +1185,17 @@ export default class ExternalOrgQuery extends LightningElement {
         await this.loadMatchingFieldOptionsFor(this.currentWizardObject);
     };
 
-    handleMatchingBack = async () => {
+    handlePrevObject = async () => {
         if (this.wizard.index <= 0) {
-            this.wizard = { ...this.wizard, step: 'select' };
             return;
         }
         const prevIndex = this.wizard.index - 1;
         this.wizard = { ...this.wizard, index: prevIndex, step: 'select' };
         await this.loadMatchingFieldOptionsFor(this.currentWizardObject);
+    };
+
+    handleStepBack = () => {
+        this.wizard = { ...this.wizard, step: 'select' };
     };
 
     handleMatchingSave = () => {
@@ -1366,6 +1494,7 @@ export default class ExternalOrgQuery extends LightningElement {
         this.error = undefined;
         try {
             this.isLoading = true;
+            this.schemaWarnings = new Map();
 
             // Get creatable fields from source and destination for intersection
             const sourceCreatableMap = await this.routeSourceCall(
@@ -1388,6 +1517,13 @@ export default class ExternalOrgQuery extends LightningElement {
                 const dstFields = (destCreatableMap && destCreatableMap[objectName]) || [];
                 const dstSet = new Set(dstFields);
                 const intersect = srcFields.filter((f) => f && f !== 'Id' && dstSet.has(f));
+                
+                // Identify schema mismatches
+                const droppedFields = srcFields.filter(f => f && f !== 'Id' && !dstSet.has(f));
+                if (droppedFields.length > 0) {
+                    this.schemaWarnings.set(objectName, droppedFields);
+                }
+
                 const uniqueFields = ['Id', ...intersect];
                 const selectClause = uniqueFields.join(', ');
 
@@ -1423,9 +1559,8 @@ export default class ExternalOrgQuery extends LightningElement {
             this.error = 'No final export queries available. Run Final Export first';
             return;
         }
-        // For now, require destination to be current org to use simple DML
-        if (!this.isDestinationCurrentOrg) {
-            this.error = 'Start Import currently supports Destination = Use Current Org';
+        if (!this.isDestinationConnected) {
+            this.error = 'Start Import requires a connected Destination';
             return;
         }
 
@@ -1507,16 +1642,38 @@ export default class ExternalOrgQuery extends LightningElement {
                         records.push(out);
                     }
 
-                    // Insert into destination current org using simple DML
-                    const insertResults = await insertRecordsCurrent({ objectName, records });
+                    // Insert into destination (Current OR Remote)
+                    // Build a quick map of source Id -> display name for reporting
+                    const nameByOldId = new Map();
+                    for (const row of rows) {
+                        if (!row || !row.Id) continue;
+                        // Prefer common name-like fields; fallback to blank
+                        const displayName =
+                            (row.Name && String(row.Name)) ||
+                            (row.Title && String(row.Title)) ||
+                            (row.Subject && String(row.Subject)) ||
+                            (row.Number && String(row.Number)) ||
+                            '';
+                        nameByOldId.set(row.Id, displayName);
+                    }
+
+                    const insertResults = await this.routeDestinationCall(
+                        () => insertRecordsCurrent({ objectName, records }),
+                        () => createRecordsRemote({ sessionId: this.destSessionId, instanceUrl: this.destInstanceUrl, objectName, records })
+                    );
+
                     const mapForObject = getTargetMap(objectName);
                     if (Array.isArray(insertResults)) {
                         for (const r of insertResults) {
                             if (r && r.success && r.oldId && r.newId) {
                                 mapForObject.set(r.oldId, r.newId);
                                 this.importStatus.successCount += 1;
-                                this.successReportLines.push(`${objectName},${r.oldId},${r.newId}`);
-                                this.importStatus.detailedMessages.push(`Inserted ${objectName} ${r.oldId} -> ${r.newId}`);
+                                // Build a user-friendly line including object, name, ids and a direct link
+                                const recName = nameByOldId.get(r.oldId) || '';
+                                const baseUrl = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
+                                const recordUrl = baseUrl ? `${baseUrl}/lightning/r/${objectName}/${r.newId}/view` : `/lightning/r/${objectName}/${r.newId}/view`;
+                                this.successReportLines.push(`${objectName} (object), ${recName ? recName + ' (name), ' : ''}${r.oldId} (source id), ${r.newId} (dest id) -> <a href="${recordUrl}" target="_blank">${recordUrl}</a>`);
+                                this.importStatus.detailedMessages.push(`Inserted ${objectName} ${recName ? recName + ' ' : ''}${r.oldId} -> ${r.newId}`);
                             } else if (r) {
                                 this.importStatus.errorCount += 1;
                                 const msg = r.errorMessage || 'Unknown error';
