@@ -14,6 +14,8 @@ import updateRecordsCurrent from '@salesforce/apex/ExternalOrgQueryController.up
 import createRecordsRemote from '@salesforce/apex/ExternalOrgQueryController.createRecordsRemote';
 import updateRecordsRemote from '@salesforce/apex/ExternalOrgQueryController.updateRecordsRemote';
 import findMatchingRecords from '@salesforce/apex/ExternalOrgQueryController.findMatchingRecords';
+import startDataSeedingBatch from '@salesforce/apex/ExternalOrgQueryController.startDataSeedingBatch';
+import getBatchJobStatus from '@salesforce/apex/ExternalOrgQueryController.getBatchJobStatus';
 
 export default class ExternalOrgQuery extends LightningElement {
     // UI state for external org connection and query execution
@@ -67,6 +69,13 @@ export default class ExternalOrgQuery extends LightningElement {
         errorCount: 0,
         detailedMessages: []
     };
+    @track batchJobId;
+    @track batchStatus;
+    
+    get isBatchProcessing() {
+        return !!this.batchJobId && this.batchStatus !== 'Completed' && this.batchStatus !== 'Failed' && this.batchStatus !== 'Aborted';
+    }
+
     successReportLines = [];
     errorReportLines = [];
     isLoading = false;
@@ -347,11 +356,16 @@ export default class ExternalOrgQuery extends LightningElement {
 
     get isStartImportDisabled() {
         // Support import if Destination is connected (Current or Remote)
-        return !this.hasFinalQueries || this.isLoading || !this.isDestinationConnected;
+        return !this.hasFinalQueries || this.isLoading || !this.isDestinationConnected || this.isBatchProcessing;
     }
 
     // Import UI computed getters
     get importProgressPercentage() {
+        if (this.isBatchProcessing && this.importStatus.totalObjects > 0) {
+             const p = this.importStatus.processedObjects;
+             const t = this.importStatus.totalObjects;
+             return Math.floor((Math.min(p, t) / t) * 100);
+        }
         const t = this.importStatus && this.importStatus.totalObjects ? this.importStatus.totalObjects : 0;
         const p = this.importStatus && this.importStatus.processedObjects ? this.importStatus.processedObjects : 0;
         if (!t) return 0;
@@ -361,14 +375,132 @@ export default class ExternalOrgQuery extends LightningElement {
     get hasImportResults() {
         const s = (this.importStatus && this.importStatus.successCount) || 0;
         const e = (this.importStatus && this.importStatus.errorCount) || 0;
-        return !this.importStatus.inProgress && (s + e > 0);
+        const finished = !this.importStatus.inProgress && !this.isBatchProcessing;
+        return finished && (s + e > 0 || this.batchStatus === 'Completed');
     }
     get hasSuccessReport() { return (this.successReportLines && this.successReportLines.length > 0); }
     get hasErrorReport() { return (this.errorReportLines && this.errorReportLines.length > 0); }
     get formattedSuccessReport() { return (this.successReportLines || []).join('<br/>'); }
     get formattedErrorReport() { return (this.errorReportLines || []).join('\n'); }
 
-    handlePlanNodeToggle = (event) => {
+    async handleStartImport() {
+        if (!this.hasFinalQueries) {
+            this.error = 'No final export queries available. Run Final Export first';
+            return;
+        }
+        if (!this.isDestinationConnected) {
+            this.error = 'Start Import requires a connected Destination';
+            return;
+        }
+
+        this.error = undefined;
+        this.isLoading = true;
+
+        try {
+            // 1. Organize Tasks in Dependency Order (Parents First)
+            const groupedQueries = new Map();
+            for (const q of this.finalExportQueries) {
+                if (!groupedQueries.has(q.objectName)) groupedQueries.set(q.objectName, []);
+                groupedQueries.get(q.objectName).push(q);
+            }
+
+            const orderedTasks = [];
+            // 'exportOrder' is topologically sorted (Parent -> Child). 
+            for (const objName of this.exportOrder) {
+                if (groupedQueries.has(objName)) {
+                    orderedTasks.push(...groupedQueries.get(objName));
+                }
+            }
+
+            // 2. Build Reference Map (Schema for Batch)
+            // Transform planEdges (Map<String, Array>) to Map<String, Map<String, String>>
+            const referenceMap = {};
+            for (const [obj, edges] of this.planEdges.entries()) {
+                const fieldMap = {};
+                if (Array.isArray(edges)) {
+                    for (const e of edges) {
+                        if (e.fieldName && e.target) {
+                            fieldMap[e.fieldName] = e.target;
+                        }
+                    }
+                }
+                referenceMap[obj] = fieldMap;
+            }
+
+            // 3. Start Batch
+            const sourceSess = this.isSourceCurrentOrg ? null : this.sessionId;
+            const sourceUrl = this.isSourceCurrentOrg ? null : this.instanceUrl;
+            const destSess = this.isDestinationCurrentOrg ? null : this.destSessionId;
+            const destUrl = this.isDestinationCurrentOrg ? null : this.destInstanceUrl;
+
+            this.batchJobId = await startDataSeedingBatch({
+                sourceSessionId: sourceSess,
+                sourceInstanceUrl: sourceUrl,
+                destSessionId: destSess,
+                destInstanceUrl: destUrl,
+                tasks: orderedTasks,
+                planEdges: referenceMap
+            });
+
+            this.batchStatus = 'Queued';
+            this.importStatus = {
+                inProgress: true,
+                currentObject: 'Initializing Batch...',
+                processedObjects: 0,
+                totalObjects: orderedTasks.length, // Track progress by task count
+                successCount: 0,
+                errorCount: 0,
+                detailedMessages: [`Batch Job Started: ${this.batchJobId}`]
+            };
+            this.successReportLines = [];
+            this.errorReportLines = [];
+            
+            // Start Polling
+            this.pollBatchStatus();
+
+        } catch (e) {
+            const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Batch start failed');
+            this.error = msg;
+            this.importStatus.inProgress = false;
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    async pollBatchStatus() {
+        if (!this.batchJobId) return;
+        
+        try {
+            const job = await getBatchJobStatus({ jobId: this.batchJobId });
+            if (job) {
+                this.batchStatus = job.Status;
+                this.importStatus.processedObjects = job.JobItemsProcessed;
+                this.importStatus.totalObjects = job.TotalJobItems;
+                this.importStatus.errorCount = job.NumberOfErrors;
+                
+                const pct = job.TotalJobItems > 0 ? Math.floor((job.JobItemsProcessed / job.TotalJobItems) * 100) : 0;
+                this.importStatus.currentObject = `Batch ${job.Status} (${pct}%)`;
+
+                if (['Completed', 'Failed', 'Aborted'].includes(job.Status)) {
+                    this.importStatus.inProgress = false;
+                    this.importStatus.detailedMessages.push(`Batch Finished: ${job.Status} - ${job.ExtendedStatus || ''}`);
+                    if (job.Status === 'Completed') {
+                        this.successReportLines.push(`Batch Completed successfully. Processed ${job.JobItemsProcessed} items.`);
+                    } else {
+                        this.errorReportLines.push(`Batch ended with status: ${job.Status}. Errors: ${job.NumberOfErrors}`);
+                    }
+                    this.batchJobId = undefined; // Stop polling state
+                } else {
+                    // Continue polling
+                    // eslint-disable-next-line @lwc/lwc/no-async-operation
+                    setTimeout(() => this.pollBatchStatus(), 2000);
+                }
+            }
+        } catch (e) {
+            console.error('Polling error', e);
+            this.importStatus.inProgress = false;
+        }
+    }
         const { nodeId } = event.detail || {};
         if (!nodeId || !this.planRoot) {
             return;

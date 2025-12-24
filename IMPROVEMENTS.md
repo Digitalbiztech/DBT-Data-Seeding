@@ -7,6 +7,7 @@
 4.  **Schema Mismatch Warnings**: The tool now detects fields present in Source but missing in Destination during the export plan phase. A warning is displayed in the "Check & Import" wizard listing specific skipped fields, improving user trust.
 5.  **External-to-External Seeding**: Removed the limitation that required the destination to be the current org. Users can now seed data between two connected external organizations using REST API for the destination writes.
 6.  **Performance (Bulk Matching)**: Moved the heavy matching logic from the browser to the server. The `findMatchingRecords` Apex method now processes records in batches using optimized SOQL queries, resolving browser freeze issues with large datasets.
+7.  **Batch Apex Import**: Moved the heavy import process (Query -> Remap -> Insert) to a Batch Apex class. The UI now starts the batch job and polls for status, eliminating browser timeouts for large exports and efficiently managing heap/CPU limits.
 
 ## Current Issues
 
@@ -18,28 +19,29 @@
     *   *Fix*: Move to Named Credentials (if possible for dynamic targets) or OAuth 2.0 Web Server flow.
 
 ### Architecture & Scalability
-3.  **DML Limits**: `insertRecordsCurrent` uses standard `Database.insert`.
-    *   *Impact*: Large imports might hit Apex Governor Limits (CPU time, heap size) or mixed DML errors if not carefully batched.
+1.  **DML Limits**: While Batch Apex helps, extremely large individual records or massive fan-outs might still hit specific governor limits. Careful batch sizing (currently 1 task per batch step) mitigates this.
+2.  **Stateful Batch Heap Limits**: The `DataSeedingBatch` class maintains the ID map in memory using `Database.Stateful`. For very large seeding jobs (tens of thousands of records), this could exceed the 12MB async heap limit.
+
+### Reliability & Maintenance
+1.  **Missing Unit Tests**: No Apex test classes exist. Deployment to production requires 75% code coverage.
+2.  **Detailed Batch Error Reporting**: While the UI shows error counts, specific row-level errors from the Batch job are not surfaced to the user, making debugging difficult without access to backend logs.
 
 ---
 
 ## Proposed New Functionalities
 
 ### 1. Robustness & Data Integrity
-*   **Upsert / Idempotency**: Allow users to select an "External ID" field for objects. Use this field to Upsert records instead of Insert, preventing duplicates on re-runs.
 *   **Field Mapping**: Add a UI step to map Source fields to Destination fields if API names differ or if the user wants to transform data.
 *   **Data Masking**: Add a "Masking" configuration (e.g., scramble emails, phone numbers) for seeding Sandbox environments with production data safely.
+*   **Persistent ID Mapping**: Store the ID map in a Custom Object or File instead of memory to support massive datasets.
+*   **Error Log Object**: Create a `Seeding_Error_Log__c` object to store row-level failures from Batch jobs for user review.
 
 ### 2. Connectivity
 *   **OAuth 2.0 Integration**: Replace username/password/token login with a proper OAuth flow (Connected App) for better security.
-*   **Any-to-Any Transfer**: Update the controller to support `createRecord` via REST API on a remote Destination org, enabling External-to-External seeding.
 
 ### 3. User Experience (UX)
 *   **Save/Load Configurations**: Allow users to save their "Seeding Plan" (Root object, depth, exclusions, matching rules) to a Custom Metadata Type or a JSON file so complex setups can be reused.
 *   **Progress Resumption**: If an import fails halfway, store the state (e.g., "processed 50/100 batches") so it can be resumed without starting over.
-
-### 4. Performance
-*   **Batch Apex Implementation**: Move the heavy lifting (Query -> Remap -> Insert) into a Batch Apex class. The LWC would just kick off the batch job and poll for status. This resolves browser timeout/memory issues.
 
 ---
 

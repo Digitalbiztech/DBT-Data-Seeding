@@ -1054,6 +1054,24 @@ public with sharing class ExternalOrgQueryController {
         return String.join(parts, '|');
     }
 
+    @AuraEnabled
+    public static String startDataSeedingBatch(
+        String sourceSessionId, 
+        String sourceInstanceUrl, 
+        String destSessionId, 
+        String destInstanceUrl, 
+        List<Map<String, Object>> tasks, 
+        Map<String, Map<String, String>> planEdges
+    ) {
+        DataSeedingBatch batch = new DataSeedingBatch(sourceSessionId, sourceInstanceUrl, destSessionId, destInstanceUrl, tasks, planEdges);
+        return Database.executeBatch(batch, 1);
+    }
+
+    @AuraEnabled
+    public static AsyncApexJob getBatchJobStatus(String jobId) {
+        return [SELECT Id, Status, JobItemsProcessed, TotalJobItems, NumberOfErrors, ExtendedStatus FROM AsyncApexJob WHERE Id = :jobId];
+    }
+
     private static List<InsertMapping> executeRemoteComposite(String sessionId, String instanceUrl, String objectName, List<Map<String, Object>> records, String method) {
         if (String.isBlank(sessionId) || String.isBlank(instanceUrl) || String.isBlank(objectName)) {
             throw new AuraHandledException('SessionId, InstanceUrl, and ObjectName are required.');
