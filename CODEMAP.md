@@ -17,6 +17,11 @@ Backend logic handles authentication with external Salesforce organizations, sch
         *   `getAvailableObjects`: Fetches a list of queryable sObjects from the remote org.
         *   `getObjectDependencies`: Builds a dependency tree (parents/lookups and children) using an iterative BFS approach and the Salesforce Composite API (batching 25 describes per call) to avoid N+1 callouts. Supports polymorphic fields.
         *   `describeSObject`: Helper to get field metadata (cached per transaction).
+    *   **Batch Operations**:
+        *   `DataSeedingBatch`: Implements `Database.Batchable` to process seeding tasks asynchronously. Uses `Database.Stateful` to maintain ID mappings and a list of `BatchError` records.
+        *   `BatchError`: Inner class to capture detailed failure context (Object, Record ID, Message).
+        *   `startDataSeedingBatch`: Initiates the asynchronous transfer process.
+        *   `getBatchJobStatus`: Polls the status of the background job.
     *   **Current Org Operations**:
         *   `queryCurrent`: Runs SOQL against the local (hosting) org.
         *   `insertRecordsCurrent`: Inserts records into the local org. Used during the import phase.

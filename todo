@@ -2,11 +2,18 @@
 
 - [] Add ability to temporarily disable validation rules.
 - [x] Create a separate application.
-- [] Update the import and export Apex classes to support bulk operations.
+- [x] Update the import and export Apex classes to support bulk operations.
 - [] Check for History, Email, Phone, etc. objects.
-- [] Make visual improvements.
-- [] Fix logic bugs.
-- [] For very large numbers of records, implement a solution to store the data.
-- [] Generate a dependency tree of the selected object and its parent objects.
-- [] Add a function to find matching records in the destination org.
+- [x] Make visual improvements.
+- [x] Fix logic bugs.
+- [x] For very large numbers of records, implement a solution to store the data.
+- [x] Generate a dependency tree of the selected object and its parent objects.
+- [x] Add a function to find matching records in the destination org.
+- [] Implement Field Mapping UI to handle schema differences.
+- [] Add Data Masking configuration for sensitive fields.
+- [] Integrate OAuth 2.0 for secure authentication.
+- [] Add Save/Load functionality for seeding plans.
+- [] Implement Progress Resumption for interrupted jobs.
+- [] Store ID mappings in a Custom Object for massive datasets.
+- [] Create a Seeding Error Log object for detailed failure tracking.
 

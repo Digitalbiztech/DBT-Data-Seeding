@@ -501,6 +501,8 @@ export default class ExternalOrgQuery extends LightningElement {
             this.importStatus.inProgress = false;
         }
     }
+
+    handlePlanNodeToggle = (event) => {
         const { nodeId } = event.detail || {};
         if (!nodeId || !this.planRoot) {
             return;
@@ -1681,156 +1683,17 @@ export default class ExternalOrgQuery extends LightningElement {
         }
     }
 
-    handleCheckMatchingDestination = () => {
-        // Placeholder for later implementation
-        console.log('Check Matching in Destination clicked');
-    };
+        handleCheckMatchingDestination = () => {
 
-    async handleStartImport() {
-        if (!this.hasFinalQueries) {
-            this.error = 'No final export queries available. Run Final Export first';
-            return;
-        }
-        if (!this.isDestinationConnected) {
-            this.error = 'Start Import requires a connected Destination';
-            return;
-        }
+            // Placeholder for later implementation
 
-        this.error = undefined;
-        this.isLoading = true;
+            console.log('Check Matching in Destination clicked');
 
-        try {
-            // Initialize progress state
-            const uniqueObjects = Array.from(new Set((this.finalExportQueries || []).map(q => q && q.objectName).filter(Boolean)));
-            this.importStatus = {
-                inProgress: true,
-                currentObject: '',
-                processedObjects: 0,
-                totalObjects: uniqueObjects.length,
-                successCount: 0,
-                errorCount: 0,
-                detailedMessages: []
-            };
-            this.successReportLines = [];
-            this.errorReportLines = [];
+        };
 
-            // Map of objectName -> Map(oldId -> newId)
-            const idRemap = new Map();
-            const getTargetMap = (obj) => { if (!idRemap.has(obj)) idRemap.set(obj, new Map()); return idRemap.get(obj); };
+    
 
-            // Build quick lookup of reference fields for each object from plan edges
-            const getRefTargetsByField = (objectName) => {
-                const list = this.planEdges && this.planEdges.get(objectName);
-                const map = new Map();
-                if (list && list.forEach) {
-                    list.forEach((e) => { if (e && e.fieldName && e.target) map.set(e.fieldName, e.target); });
-                }
-                return map;
-            };
-
-            // Group queries by object and iterate bottom-up by object
-            const grouped = new Map();
-            for (const def of this.finalExportQueries) {
-                if (!def || !def.objectName || !def.soql) continue;
-                if (!grouped.has(def.objectName)) grouped.set(def.objectName, []);
-                grouped.get(def.objectName).push(def);
-            }
-            const objectsInReverse = Array.from(grouped.keys()).reverse();
-            for (const objectName of objectsInReverse) {
-                const defs = grouped.get(objectName) || [];
-                this.importStatus.currentObject = objectName;
-
-                // Collect and insert per each SOQL chunk
-                const refByField = getRefTargetsByField(objectName);
-                for (const def of defs) {
-                    const soql = def.soql;
-                    // Retrieve data from Source using the stored SOQL
-                    const srcResult = await this.runQueryWithSession(soql);
-                    const rows = (srcResult && srcResult.rows) || [];
-                    if (!rows.length) {
-                        continue;
-                    }
-
-                    const records = [];
-                    for (const row of rows) {
-                        if (!row) continue;
-                        const out = { Id: row.Id };
-                        for (const key of Object.keys(row)) {
-                            if (key === 'Id') continue; // never set Id on insert
-                            let value = row[key];
-                            const targetObj = refByField.get(key);
-                            if (targetObj) {
-                                const mapForTarget = idRemap.get(targetObj);
-                                if (mapForTarget) {
-                                    if (typeof value === 'string' && mapForTarget.has(value)) {
-                                        value = mapForTarget.get(value);
-                                    } else if (Array.isArray(value)) {
-                                        value = value.map((v) => (typeof v === 'string' && mapForTarget.has(v)) ? mapForTarget.get(v) : v);
-                                    }
-                                }
-                            }
-                            out[key] = value;
-                        }
-                        records.push(out);
-                    }
-
-                    // Insert into destination (Current OR Remote)
-                    // Build a quick map of source Id -> display name for reporting
-                    const nameByOldId = new Map();
-                    for (const row of rows) {
-                        if (!row || !row.Id) continue;
-                        // Prefer common name-like fields; fallback to blank
-                        const displayName =
-                            (row.Name && String(row.Name)) ||
-                            (row.Title && String(row.Title)) ||
-                            (row.Subject && String(row.Subject)) ||
-                            (row.Number && String(row.Number)) ||
-                            '';
-                        nameByOldId.set(row.Id, displayName);
-                    }
-
-                    const insertResults = await this.routeDestinationCall(
-                        () => insertRecordsCurrent({ objectName, records }),
-                        () => createRecordsRemote({ sessionId: this.destSessionId, instanceUrl: this.destInstanceUrl, objectName, records })
-                    );
-
-                    const mapForObject = getTargetMap(objectName);
-                    if (Array.isArray(insertResults)) {
-                        for (const r of insertResults) {
-                            if (r && r.success && r.oldId && r.newId) {
-                                mapForObject.set(r.oldId, r.newId);
-                                this.importStatus.successCount += 1;
-                                // Build a user-friendly line including object, name, ids and a direct link
-                                const recName = nameByOldId.get(r.oldId) || '';
-                                const baseUrl = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
-                                const recordUrl = baseUrl ? `${baseUrl}/lightning/r/${objectName}/${r.newId}/view` : `/lightning/r/${objectName}/${r.newId}/view`;
-                                this.successReportLines.push(`${objectName} (object), ${recName ? recName + ' (name), ' : ''}${r.oldId} (source id), ${r.newId} (dest id) -> <a href="${recordUrl}" target="_blank">${recordUrl}</a>`);
-                                this.importStatus.detailedMessages.push(`Inserted ${objectName} ${recName ? recName + ' ' : ''}${r.oldId} -> ${r.newId}`);
-                            } else if (r) {
-                                this.importStatus.errorCount += 1;
-                                const msg = r.errorMessage || 'Unknown error';
-                                this.errorReportLines.push(`${objectName},${r.oldId || ''},${msg}`);
-                                this.importStatus.detailedMessages.push(`Failed to insert ${objectName} ${r.oldId || ''}: ${msg}`);
-                            }
-                        }
-                    }
-                }
-
-                // One object done
-                this.importStatus.processedObjects += 1;
-            }
-
-            console.log('Import completed');
-        } catch (e) {
-            const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Import failed');
-            this.error = msg;
-            console.error('Start import error', msg);
-        } finally {
-            this.importStatus.inProgress = false;
-            this.isLoading = false;
-        }
-    }
-    computeExportOrder(edgesByObject, rootObject, idSetKeys = []) {
+        computeExportOrder(edgesByObject, rootObject, idSetKeys = []) {
         // Build nodes, adjacency (parent -> children), and in-degree(children)
         const nodes = new Set(idSetKeys || []);
         const adj = new Map();
