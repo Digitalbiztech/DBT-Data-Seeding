@@ -46,15 +46,20 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
     }
 
     public Iterable<Map<String, Object>> start(Database.BatchableContext bc) {
+        System.debug('DataSeedingBatch start. Tasks: ' + (this.taskList != null ? this.taskList.size() : 0));
         return this.taskList;
     }
 
     public void execute(Database.BatchableContext bc, List<Map<String, Object>> scope) {
+        System.debug('DataSeedingBatch execute started. Scope size: ' + scope.size());
         for (Map<String, Object> task : scope) {
+            String objName = (String)task.get('objectName');
+            System.debug('Processing task for object: ' + objName);
             try {
                 processTask(task);
             } catch (Exception e) {
-                logError((String)task.get('objectName'), null, e.getMessage(), e.getStackTraceString());
+                System.debug('Error processing task ' + objName + ': ' + e.getMessage() + '\n' + e.getStackTraceString());
+                logError(objName, null, e.getMessage(), e.getStackTraceString());
             }
         }
     }
@@ -75,21 +80,29 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
         String objectName = (String) task.get('objectName');
         String soql = (String) task.get('soql');
         
+        System.debug('processTask: ' + objectName + ' SOQL: ' + soql);
+
         // 1. Query Source
         List<Map<String, Object>> rows;
         try {
             rows = fetchSourceRecords(soql);
+            System.debug('Fetched ' + (rows != null ? rows.size() : 0) + ' source records for ' + objectName);
         } catch (Exception e) {
             throw new AuraHandledException('Source query failed for ' + objectName + ': ' + e.getMessage());
         }
         
-        if (rows.isEmpty()) return;
+        if (rows == null || rows.isEmpty()) {
+            System.debug('No records to process for ' + objectName);
+            return;
+        }
 
         // 2. Remap Relationships
         List<Map<String, Object>> recordsToInsert = new List<Map<String, Object>>();
         Map<String, String> refFields = this.referenceFieldCache.containsKey(objectName) 
             ? this.referenceFieldCache.get(objectName) 
             : new Map<String, String>();
+        
+        System.debug('Reference fields for ' + objectName + ': ' + refFields);
 
         for (Map<String, Object> row : rows) {
             String oldId = (String) row.get('Id');
@@ -99,22 +112,33 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
             for (String field : row.keySet()) {
                 if (field == 'Id' || field == 'attributes') continue;
                 Object val = row.get(field);
+                
+                // Remap if it is a reference field
                 if (refFields.containsKey(field)) {
                     String parentObj = refFields.get(field);
                     if (this.idRemap.containsKey(parentObj)) {
                         Map<String, String> parentMap = this.idRemap.get(parentObj);
                         if (val instanceof String && parentMap.containsKey((String)val)) {
-                            val = parentMap.get((String)val);
+                            Object newVal = parentMap.get((String)val);
+                            System.debug('Remapping ' + field + ' from ' + val + ' to ' + newVal);
+                            val = newVal;
+                        } else {
+                             // If we can't find the parent, and it's required? 
+                             // For now we keep the old ID, which will likely fail reference check in dest,
+                             // or we could null it out.
+                             // Leaving as is allows for "external ID" references if they happen to match, 
+                             // but usually it fails.
                         }
                     }
                 }
                 newRec.put(field, val);
             }
-            newRec.put('Id', oldId); 
+            newRec.put('Id', oldId); // Pass oldId for tracking (will be removed before insert by controller if needed)
             recordsToInsert.add(newRec);
         }
 
         // 3. Insert/Create in Destination
+        System.debug('Inserting ' + recordsToInsert.size() + ' records into destination.');
         List<ExternalOrgQueryController.InsertMapping> results;
         try {
             if (String.isNotBlank(destSessionId) && String.isNotBlank(destInstanceUrl)) {
@@ -131,14 +155,20 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
             this.idRemap.put(objectName, new Map<String, String>());
         }
         Map<String, String> objectMap = this.idRemap.get(objectName);
+        
+        Integer successCount = 0;
+        Integer errorCount = 0;
 
         for (ExternalOrgQueryController.InsertMapping res : results) {
             if (res.success && res.oldId != null && res.newId != null) {
                 objectMap.put(res.oldId, res.newId);
+                successCount++;
             } else if (!res.success) {
                 logError(objectName, res.oldId, res.errorMessage, null);
+                errorCount++;
             }
         }
+        System.debug('Batch result for ' + objectName + ': ' + successCount + ' successes, ' + errorCount + ' errors.');
     }
 
     private List<Map<String, Object>> fetchSourceRecords(String soql) {
@@ -153,6 +183,11 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
 
     public void finish(Database.BatchableContext bc) {
         System.debug('Data Seeding Batch Completed.');
-        // Could send an email or notification
+        if (!this.errors.isEmpty()) {
+            System.debug('Errors encountered: ' + this.errors.size());
+            for(BatchError e : this.errors) {
+                System.debug('Err: ' + e.objectName + ' ' + e.recordId + ' ' + e.message);
+            }
+        }
     }
 }
