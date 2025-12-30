@@ -517,36 +517,37 @@
                                     </div>
                                     <div class="slds-m-top_small" style="max-height: 400px; overflow-y: auto;">
                                         
-                                        <!-- Detailed Table Report (Preferred) -->
-                                        <template if:true={hasBatchReportRows}>
-                                            <div class="slds-box slds-theme_shade slds-m-bottom_small">
-                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Detailed Record Report</div>
+                                        <!-- Success Rows Table -->
+                                        <template if:true={hasSuccessRows}>
+                                            <div class="slds-box slds-theme_success slds-m-bottom_small">
+                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Success Results</div>
                                                 <table class="slds-table slds-table_cell-buffer slds-table_bordered">
                                                     <thead>
                                                         <tr class="slds-line-height_reset">
                                                             <th scope="col"><div class="slds-truncate">Object</div></th>
                                                             <th scope="col"><div class="slds-truncate">Name</div></th>
-                                                            <th scope="col"><div class="slds-truncate">Status</div></th>
-                                                            <th scope="col"><div class="slds-truncate">Message</div></th>
-                                                            <th scope="col"><div class="slds-truncate">Link</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Source ID</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Source Link</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Dest. Link</div></th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        <template for:each={batchReportRows} for:item="row">
+                                                        <template for:each={successRows} for:item="row">
                                                             <tr key={row.sourceId}>
                                                                 <td><div class="slds-truncate">{row.objectName}</div></td>
                                                                 <td><div class="slds-truncate" title={row.name}>{row.name}</div></td>
+                                                                <td><div class="slds-truncate">{row.sourceId}</div></td>
                                                                 <td>
                                                                     <div class="slds-truncate">
-                                                                        <span if:true={row.recordUrl} class="slds-text-color_success">Success</span>
-                                                                        <span if:false={row.recordUrl} class="slds-text-color_error">Error</span>
+                                                                        <template if:true={row.sourceUrl}>
+                                                                            <lightning-formatted-url value={row.sourceUrl} label="Source" target="_blank"></lightning-formatted-url>
+                                                                        </template>
                                                                     </div>
                                                                 </td>
-                                                                <td><div class="slds-truncate" title={row.message}>{row.message}</div></td>
                                                                 <td>
                                                                     <div class="slds-truncate">
                                                                         <template if:true={row.recordUrl}>
-                                                                            <lightning-formatted-url value={row.recordUrl} label="View" target="_blank"></lightning-formatted-url>
+                                                                            <lightning-formatted-url value={row.recordUrl} label="Dest" target="_blank"></lightning-formatted-url>
                                                                         </template>
                                                                     </div>
                                                                 </td>
@@ -557,32 +558,38 @@
                                             </div>
                                         </template>
 
-                                        <!-- Fallback Reports -->
-                                        <template if:false={hasBatchReportRows}>
-                                            <!-- Success Report -->
-                                            <template if:true={hasSuccessReport}>
-                                                <div class="slds-box slds-theme_success slds-m-bottom_small">
-                                                    <div class="slds-text-heading_small slds-m-bottom_x-small">Success Report</div>
-                                                    <lightning-formatted-rich-text class="slds-text-body_small" value={formattedSuccessReport}></lightning-formatted-rich-text>
-                                                </div>
-                                            </template>
-                                            
-                                            <!-- Error Report -->
-                                            <template if:true={hasErrorReport}>
-                                                <div class="slds-box slds-theme_error slds-m-bottom_small">
-                                                    <div class="slds-text-heading_small slds-m-bottom_x-small">Error Report</div>
-                                                    <pre class="slds-text-body_small">{formattedErrorReport}</pre>
-                                                </div>
-                                            </template>
-                                            
-                                            <!-- Detailed Messages -->
-                                            <div class="slds-box slds-theme_default">
-                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Detailed Log</div>
-                                                <template for:each={importStatus.detailedMessages} for:item="message">
-                                                    <div key={message} class="slds-text-body_small slds-m-vertical_xx-small">
-                                                        {message}
-                                                    </div>
-                                                </template>
+                                        <!-- Error Rows Table -->
+                                        <template if:true={hasErrorRows}>
+                                            <div class="slds-box slds-theme_error slds-m-bottom_small">
+                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Error Results</div>
+                                                <table class="slds-table slds-table_cell-buffer slds-table_bordered">
+                                                    <thead>
+                                                        <tr class="slds-line-height_reset">
+                                                            <th scope="col"><div class="slds-truncate">Object</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Name</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Source ID</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Source Link</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Error Detail</div></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <template for:each={errorRows} for:item="row">
+                                                            <tr key={row.sourceId}>
+                                                                <td><div class="slds-truncate">{row.objectName}</div></td>
+                                                                <td><div class="slds-truncate" title={row.name}>{row.name}</div></td>
+                                                                <td><div class="slds-truncate">{row.sourceId}</div></td>
+                                                                <td>
+                                                                    <div class="slds-truncate">
+                                                                        <template if:true={row.sourceUrl}>
+                                                                            <lightning-formatted-url value={row.sourceUrl} label="Source" target="_blank"></lightning-formatted-url>
+                                                                        </template>
+                                                                    </div>
+                                                                </td>
+                                                                <td><div class="slds-truncate" title={row.message}>{row.message}</div></td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </template>
                                     </div>

@@ -69,453 +69,469 @@ export default class ExternalOrgQuery extends LightningElement {
         errorCount: 0,
         detailedMessages: []
     };
-    @track batchJobId;
-    @track batchStatus;
-    @track batchReportRows = [];
-    
-    get isBatchProcessing() {
-        return !!this.batchJobId && this.batchStatus !== 'Completed' && this.batchStatus !== 'Failed' && this.batchStatus !== 'Aborted';
-    }
-
-    successReportLines = [];
-    errorReportLines = [];
-    isLoading = false;
-    // One-shot flags to suppress onchange after manual deselect click
-    _suppressSourceChangeOnce = false;
-    _suppressDestChangeOnce = false;
-
-    planEdges = new Map();
-    lastQueriedIdSets = new Map();
-    // Picklist state for current-org selection
-    @track sourceUseCurrent = 'no';
-    @track destUseCurrent = 'no';
-    // Lightweight console logger
-    debug = (...args) => { try { console.log('[ExternalOrgQuery]', ...args); } catch (e) { /* no-op */ } };
-
-    get environmentOptions() {
-        // Environment options for login host selection
-        return [
-            { label: 'Production', value: 'Production' },
-            { label: 'Sandbox', value: 'Sandbox' }
-        ];
-    }
-    get yesNoOptions() {
-        return [
-            { label: 'Yes', value: 'yes' },
-            { label: 'No', value: 'no' }
-        ];
-    }
-
-    // Connection state + button gating
-    get isSourceConnected() {
-        return this.isSourceCurrentOrg || !!(this.sessionId && this.instanceUrl);
-    }
-
-    get isDestinationConnected() {
-        return this.isDestinationCurrentOrg || !!(this.destSessionId && this.destInstanceUrl);
-    }
-
-    get isRunDisabled() {
-        // Disable until source connected, SOQL present, and object picklist loaded
-        return !this.isSourceConnected || !this.soql || !this.showObjectPicker || this.isLoading;
-    }
-
-    get canTestSource() {
-        return !!this.username && !!this.password && !this.isLoading;
-    }
-
-    get canTestDestination() {
-        return !!this.destUsername && !!this.destPassword && !this.isLoading;
-    }
-
-    get objectOptions() {
-        return this.availableObjects.map(obj => ({
-            label: obj,
-            value: obj
-        }));
-    }
-
-    @track objectFilter = '';
-    get filteredObjectOptions() {
-        const term = (this.objectFilter || '').toLowerCase();
-        const opts = this.objectOptions;
-        if (!term) return opts;
-        return opts.filter(o => (o.label && o.label.toLowerCase().includes(term)) || (o.value && o.value.toLowerCase().includes(term)));
-    }
-    handleObjectFilterChange = (event) => { this.objectFilter = event.target.value || ''; };
-
-    get selectedObjectEmpty() {
-        return !this.selectedObject;
-    }
-
-    get excludedObjectOptions() {
-        return this.availableObjects.map(obj => ({
-            label: obj,
-            value: obj
-        }));
-    }
-
-    get standardObjects() {
-        // Common standard Salesforce objects
-        const standardObjects = [
-            'Account', 'Contact', 'Lead', 'Opportunity', 'Case', 'Campaign', 'Product2',
-            'Pricebook2', 'PricebookEntry', 'Quote', 'Contract', 'Task', 'Event',
-            'User', 'Profile', 'Role', 'PermissionSet', 'Group', 'Queue', 'Territory',
-            'Asset', 'Solution', 'Idea', 'Vote', 'Attachment', 'Document', 'Folder',
-            'ContentDocument', 'ContentVersion', 'ContentWorkspace', 'FeedItem',
-            'FeedComment', 'CollaborationGroup', 'CollaborationGroupMember',
-            'WorkOrder', 'WorkOrderLineItem', 'ServiceAppointment', 'ServiceResource',
-            'OperatingHours', 'ServiceTerritory', 'Location', 'MaintenancePlan',
-            'MaintenanceAsset', 'ReturnOrder', 'ReturnOrderLineItem', 'Shipment',
-            'ShipmentItem', 'ProductItem', 'InventoryItem', 'InventoryAdjustment',
-            'InventoryAdjustmentItem', 'InventoryTransfer', 'InventoryTransferItem',
-            'InventoryCount', 'InventoryCountItem', 'InventoryCountAdjustment',
-            'InventoryCountAdjustmentItem', 'InventoryCountAdjustmentLine'
-        ];
+        @track batchJobId;
+        @track batchStatus;
+        @track batchReportRows = [];
+        @track successRows = [];
+        @track errorRows = [];
         
-        return this.availableObjects.filter(obj => standardObjects.includes(obj));
-    }
-
-    get customObjects() {
-        return this.availableObjects.filter(obj => !this.standardObjects.includes(obj));
-    }
-
-    // Simple getter methods for template
-    handleUsernameChange = (event) => { this.username = event.target.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); console.log('Username updated'); };
-    handlePasswordChange = (event) => { this.password = event.target.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); console.log('Password updated'); };
-    handleEnvironmentChange = (event) => { this.environment = event.detail.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); };
-    handleSoqlChange = (event) => { this.soql = event.target.value; };
-    handleObjectChange = (event) => { this.selectedObject = event.detail.value; this.dependencyTree = undefined; };
+        get isBatchProcessing() {
+            return !!this.batchJobId && this.batchStatus !== 'Completed' && this.batchStatus !== 'Failed' && this.batchStatus !== 'Aborted';
+        }
     
-    // Destination input handlers
-    handleDestUsernameChange = (event) => { this.destUsername = event.target.value; this.destTestMessage = undefined; };
-    handleDestPasswordChange = (event) => { this.destPassword = event.target.value; this.destTestMessage = undefined; };
-    handleDestEnvironmentChange = (event) => { this.destEnvironment = event.detail.value; this.destTestMessage = undefined; };
-    handleDepthChange = (event) => {
-        const raw = parseInt(event.target.value, 10);
-        const safe = Number.isFinite(raw) && raw >= 0 ? raw : 0;
-        this.maxDepth = safe;
-        this.dependencyTree = undefined;
-    };
-    // New picklist handlers to centralize YES/NO and keep Source/Destination synchronized
-    handleSourceCurrentPick = (event) => {
-        const val = (event && event.detail && event.detail.value) || 'no';
-        this.sourceUseCurrent = val;
-        if (val === 'yes') {
-            // Force destination to NO
-            this.destUseCurrent = 'no';
-            this.currentOrgFor = 'source';
-            this.destTestMessage = undefined;
-            // Switch to current-org for source: reset external session/UI and load objects
-            this.clearSourceSession();
-            this.resetObjectSelection();
-            this.fetchAvailableObjectsSource();
-        } else {
-            // Turning off current org for source
-            if (this.isSourceCurrentOrg) {
-                this.currentOrgFor = this.destUseCurrent === 'yes' ? 'destination' : '';
-            }
-            this.clearSourceSession();
-            this.resetObjectSelection();
+        successReportLines = [];
+        errorReportLines = [];
+        isLoading = false;
+        // One-shot flags to suppress onchange after manual deselect click
+        _suppressSourceChangeOnce = false;
+        _suppressDestChangeOnce = false;
+    
+        planEdges = new Map();
+        lastQueriedIdSets = new Map();
+        // Picklist state for current-org selection
+        @track sourceUseCurrent = 'no';
+        @track destUseCurrent = 'no';
+        // Lightweight console logger
+        debug = (...args) => { try { console.log('[ExternalOrgQuery]', ...args); } catch (e) { /* no-op */ } };
+    
+        get environmentOptions() {
+            // Environment options for login host selection
+            return [
+                { label: 'Production', value: 'Production' },
+                { label: 'Sandbox', value: 'Sandbox' }
+            ];
         }
-    };
-
-    handleDestinationCurrentPick = (event) => {
-        const val = (event && event.detail && event.detail.value) || 'no';
-        this.destUseCurrent = val;
-        if (val === 'yes') {
-            // Force source to NO
-            this.sourceUseCurrent = 'no';
-            this.currentOrgFor = 'destination';
-            // Clear destination external session as we are using current org
-            this.destSessionId = undefined;
-            this.destInstanceUrl = undefined;
-            this.destTestMessage = undefined;
-        } else {
-            // Turning off current org for destination
-            if (this.isDestinationCurrentOrg) {
-                this.currentOrgFor = this.sourceUseCurrent === 'yes' ? 'source' : '';
-            }
+        get yesNoOptions() {
+            return [
+                { label: 'Yes', value: 'yes' },
+                { label: 'No', value: 'no' }
+            ];
         }
-    };
-
-    // Helper utilities to centralize connection routing
-    isSourceCurrent() { return this.isSourceCurrentOrg; }
-    isDestinationCurrent() { return this.isDestinationCurrentOrg; }
-    ensureSourceConnected(message = 'Please test connection first') {
-        if (this.isSourceCurrentOrg) return true;
-        if (this.sessionId && this.instanceUrl) return true;
-        this.error = message;
-        return false;
-    }
-    ensureDestinationConnected(message = 'Please test connection first') {
-        if (this.isDestinationCurrentOrg) return true;
-        if (this.destSessionId && this.destInstanceUrl) return true;
-        this.error = message;
-        return false;
-    }
-    routeSourceCall(fnCurrent, fnSession) {
-        return this.isSourceCurrentOrg ? fnCurrent() : fnSession();
-    }
-    routeDestinationCall(fnCurrent, fnSession) {
-        return this.isDestinationCurrentOrg ? fnCurrent() : fnSession();
-    }
-    handleExcludedObjectsChange = (event) => { this.excludedObjects = event.detail.value || []; this.dependencyTree = undefined; };
-    handleSelectStandardObjects = () => { this.excludedObjects = this.standardObjects; this.dependencyTree = undefined; };
-    handleSelectCustomObjects = () => { this.excludedObjects = this.customObjects; this.dependencyTree = undefined; };
-    handleClearExclusions = () => { this.excludedObjects = []; this.dependencyTree = undefined; };
-
-    // Current Org selection state
-    @track currentOrgFor = '';
-    get isSourceCurrentOrg() { return this.currentOrgFor === 'source'; }
-    get isDestinationCurrentOrg() { return this.currentOrgFor === 'destination'; }
-    get sourceSectionClass() { return this.isSourceCurrentOrg ? 'section-disabled' : ''; }
-    get destinationSectionClass() { return this.isDestinationCurrentOrg ? 'section-disabled' : ''; }
-    handleSelectSourceCurrent = () => {
-        if (this._suppressSourceChangeOnce) {
-            this._suppressSourceChangeOnce = false;
-            return;
+    
+        // Connection state + button gating
+        get isSourceConnected() {
+            return this.isSourceCurrentOrg || !!(this.sessionId && this.instanceUrl);
         }
-        if (!this.isSourceCurrentOrg) {
-            this.currentOrgFor = 'source';
-            this.sourceUseCurrent = 'yes';
-            this.destUseCurrent = 'no';
-            this.destTestMessage = undefined;
-            // Clear any external source session and fetch current org objects
-            this.clearSourceSession();
-            this.resetObjectSelection();
-            this.fetchAvailableObjectsSource();
+    
+        get isDestinationConnected() {
+            return this.isDestinationCurrentOrg || !!(this.destSessionId && this.destInstanceUrl);
         }
-    };
-    handleSelectDestinationCurrent = () => {
-        if (this._suppressDestChangeOnce) {
-            this._suppressDestChangeOnce = false;
-            return;
+    
+        get isRunDisabled() {
+            // Disable until source connected, SOQL present, and object picklist loaded
+            return !this.isSourceConnected || !this.soql || !this.showObjectPicker || this.isLoading;
         }
-        if (!this.isDestinationCurrentOrg) {
-            this.currentOrgFor = 'destination';
-            this.sourceUseCurrent = 'no';
-            this.destUseCurrent = 'yes';
-            // Clear destination external session
-            this.destSessionId = undefined;
-            this.destInstanceUrl = undefined;
-            this.destTestMessage = undefined;
+    
+        get canTestSource() {
+            return !!this.username && !!this.password && !this.isLoading;
         }
-    };
-
-    // Allow unselecting the currently selected radio by clicking it again
-    handleToggleSourceCurrent = (event) => {
-        try { event && event.stopPropagation && event.stopPropagation(); } catch (e) { /* no-op */ }
-        if (this.isSourceCurrentOrg) {
-            // Suppress the immediate onchange that lightning-input may fire
-            this._suppressSourceChangeOnce = true;
-            // Unselect current-org for source
-            this.currentOrgFor = '';
-            // Reset UI that depends on source connection/object list
-            this.clearSourceSession();
-            this.resetObjectSelection();
+    
+        get canTestDestination() {
+            return !!this.destUsername && !!this.destPassword && !this.isLoading;
         }
-        // If not selected, normal onchange will handle selecting it
-    };
-
-    handleToggleDestinationCurrent = (event) => {
-        try { event && event.stopPropagation && event.stopPropagation(); } catch (e) { /* no-op */ }
-        if (this.isDestinationCurrentOrg) {
-            // Suppress the immediate onchange that lightning-input may fire
-            this._suppressDestChangeOnce = true;
-            // Unselect current-org for destination
-            this.currentOrgFor = '';
-            // No additional cleanup needed for destination beyond UI state
+    
+        get objectOptions() {
+            return this.availableObjects.map(obj => ({
+                label: obj,
+                value: obj
+            }));
         }
-        // If not selected, normal onchange will handle selecting it
-    };
-    get hasPlan() {
-        // Consider a plan valid if we built a root node, even with no edges
-        return this.planReady && !!this.planRoot;
-    }
-
-    get canShowPlanControls() {
-        return this.hasPlan;
-    }
-
-    get hasCollectedIds() {
-        return this.lastQueriedIdSets && typeof this.lastQueriedIdSets.size === 'number' && this.lastQueriedIdSets.size > 0;
-    }
-
-    get isExportDisabled() {
-        return !this.hasPlan || !this.hasExportOrder || this.isLoading;
-    }
-
-    get isFinalExportDisabled() {
-        const destConnected = this.isDestinationCurrentOrg || (!!this.destSessionId && !!this.destInstanceUrl);
-        return this.isExportDisabled || !this.hasCollectedIds || !destConnected;
-    }
-
-    get hasFinalQueries() {
-        return Array.isArray(this.finalExportQueries) && this.finalExportQueries.length > 0;
-    }
-
-    get isStartImportDisabled() {
-        // Support import if Destination is connected (Current or Remote)
-        return !this.hasFinalQueries || this.isLoading || !this.isDestinationConnected || this.isBatchProcessing;
-    }
-
-    // Import UI computed getters
-    get importProgressPercentage() {
-        if (this.isBatchProcessing && this.importStatus.totalObjects > 0) {
-             const p = this.importStatus.processedObjects;
-             const t = this.importStatus.totalObjects;
-             return Math.floor((Math.min(p, t) / t) * 100);
+    
+        @track objectFilter = '';
+        get filteredObjectOptions() {
+            const term = (this.objectFilter || '').toLowerCase();
+            const opts = this.objectOptions;
+            if (!term) return opts;
+            return opts.filter(o => (o.label && o.label.toLowerCase().includes(term)) || (o.value && o.value.toLowerCase().includes(term)));
         }
-        const t = this.importStatus && this.importStatus.totalObjects ? this.importStatus.totalObjects : 0;
-        const p = this.importStatus && this.importStatus.processedObjects ? this.importStatus.processedObjects : 0;
-        if (!t) return 0;
-        const pct = Math.floor((Math.min(p, t) / t) * 100);
-        return isNaN(pct) ? 0 : pct;
-    }
-    get hasImportResults() {
-        const s = (this.importStatus && this.importStatus.successCount) || 0;
-        const e = (this.importStatus && this.importStatus.errorCount) || 0;
-        const finished = !this.importStatus.inProgress && !this.isBatchProcessing;
-        return finished && (s + e > 0 || this.batchStatus === 'Completed');
-    }
-    get hasSuccessReport() { return (this.successReportLines && this.successReportLines.length > 0); }
-    get hasErrorReport() { return (this.errorReportLines && this.errorReportLines.length > 0); }
-    get formattedSuccessReport() { return (this.successReportLines || []).join('<br/>'); }
-    get formattedErrorReport() { return (this.errorReportLines || []).join('\n'); }
-    get hasBatchReportRows() { return this.batchReportRows && this.batchReportRows.length > 0; }
-
-    async handleStartImport() {
-        if (!this.hasFinalQueries) {
-            this.error = 'No final export queries available. Run Final Export first';
-            return;
+        handleObjectFilterChange = (event) => { this.objectFilter = event.target.value || ''; };
+    
+        get selectedObjectEmpty() {
+            return !this.selectedObject;
         }
-        if (!this.isDestinationConnected) {
-            this.error = 'Start Import requires a connected Destination';
-            return;
+    
+        get excludedObjectOptions() {
+            return this.availableObjects.map(obj => ({
+                label: obj,
+                value: obj
+            }));
         }
-
-        this.error = undefined;
-        this.isLoading = true;
-        this.batchReportRows = [];
-
-        try {
-            // 1. Organize Tasks in Dependency Order (Parents First)
-            const groupedQueries = new Map();
-            for (const q of this.finalExportQueries) {
-                if (!groupedQueries.has(q.objectName)) groupedQueries.set(q.objectName, []);
-                groupedQueries.get(q.objectName).push(q);
-            }
-
-            const orderedTasks = [];
-            // 'exportOrder' is topologically sorted (Parent -> Child). 
-            for (const objName of this.exportOrder) {
-                if (groupedQueries.has(objName)) {
-                    orderedTasks.push(...groupedQueries.get(objName));
-                }
-            }
-
-            // 2. Build Reference Map (Schema for Batch)
-            // Transform planEdges (Map<String, Array>) to Map<String, Map<String, String>>
-            const referenceMap = {};
-            for (const [obj, edges] of this.planEdges.entries()) {
-                const fieldMap = {};
-                if (Array.isArray(edges)) {
-                    for (const e of edges) {
-                        if (e.fieldName && e.target) {
-                            fieldMap[e.fieldName] = e.target;
-                        }
-                    }
-                }
-                referenceMap[obj] = fieldMap;
-            }
-
-            // 3. Start Batch
-            const sourceSess = this.isSourceCurrentOrg ? null : this.sessionId;
-            const sourceUrl = this.isSourceCurrentOrg ? null : this.instanceUrl;
-            const destSess = this.isDestinationCurrentOrg ? null : this.destSessionId;
-            const destUrl = this.isDestinationCurrentOrg ? null : this.destInstanceUrl;
-
-            this.batchJobId = await startDataSeedingBatch({
-                sourceSessionId: sourceSess,
-                sourceInstanceUrl: sourceUrl,
-                destSessionId: destSess,
-                destInstanceUrl: destUrl,
-                tasks: orderedTasks,
-                planEdges: referenceMap
-            });
-
-            this.batchStatus = 'Queued';
-            this.importStatus = {
-                inProgress: true,
-                currentObject: 'Initializing Batch...',
-                processedObjects: 0,
-                totalObjects: orderedTasks.length, // Track progress by task count
-                successCount: 0,
-                errorCount: 0,
-                detailedMessages: [`Batch Job Started: ${this.batchJobId}`]
-            };
-            this.successReportLines = [];
-            this.errorReportLines = [];
+    
+        get standardObjects() {
+            // Common standard Salesforce objects
+            const standardObjects = [
+                'Account', 'Contact', 'Lead', 'Opportunity', 'Case', 'Campaign', 'Product2',
+                'Pricebook2', 'PricebookEntry', 'Quote', 'Contract', 'Task', 'Event',
+                'Profile', 'Role', 'PermissionSet', 'Group', 'Queue', 'Territory',
+                'Asset', 'Solution', 'Idea', 'Vote', 'Attachment', 'Document', 'Folder',
+                'ContentDocument', 'ContentVersion', 'ContentWorkspace', 'FeedItem',
+                'FeedComment', 'CollaborationGroup', 'CollaborationGroupMember',
+                'WorkOrder', 'WorkOrderLineItem', 'ServiceAppointment', 'ServiceResource',
+                'OperatingHours', 'ServiceTerritory', 'Location', 'MaintenancePlan',
+                'MaintenanceAsset', 'ReturnOrder', 'ReturnOrderLineItem', 'Shipment',
+                'ShipmentItem', 'ProductItem', 'InventoryItem', 'InventoryAdjustment',
+                'InventoryAdjustmentItem', 'InventoryTransfer', 'InventoryTransferItem',
+                'InventoryCount', 'InventoryCountItem', 'InventoryCountAdjustment',
+                'InventoryCountAdjustmentItem', 'InventoryCountAdjustmentLine'
+            ];
             
-            // Start Polling
-            this.pollBatchStatus();
-
-        } catch (e) {
-            const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Batch start failed');
-            this.error = msg;
-            this.importStatus.inProgress = false;
-        } finally {
-            this.isLoading = false;
+            return this.availableObjects.filter(obj => standardObjects.includes(obj));
         }
-    }
-
-    async pollBatchStatus() {
-        if (!this.batchJobId) return;
+    
+        get customObjects() {
+            return this.availableObjects.filter(obj => !this.standardObjects.includes(obj));
+        }
+    
+        // Simple getter methods for template
+        handleUsernameChange = (event) => { this.username = event.target.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); console.log('Username updated'); };
+        handlePasswordChange = (event) => { this.password = event.target.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); console.log('Password updated'); };
+        handleEnvironmentChange = (event) => { this.environment = event.detail.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); };
+        handleSoqlChange = (event) => { this.soql = event.target.value; };
+        handleObjectChange = (event) => { this.selectedObject = event.detail.value; this.dependencyTree = undefined; };
         
-        try {
-            const job = await getBatchJobStatus({ jobId: this.batchJobId });
-            if (job) {
-                this.batchStatus = job.Status;
-                this.importStatus.processedObjects = job.JobItemsProcessed;
-                this.importStatus.totalObjects = job.TotalJobItems;
-                this.importStatus.errorCount = job.NumberOfErrors;
-                
-                const pct = job.TotalJobItems > 0 ? Math.floor((job.JobItemsProcessed / job.TotalJobItems) * 100) : 0;
-                this.importStatus.currentObject = `Batch ${job.Status} (${pct}%)`;
-
-                if (['Completed', 'Failed', 'Aborted'].includes(job.Status)) {
-                    this.importStatus.inProgress = false;
-                    this.importStatus.detailedMessages.push(`Batch Finished: ${job.Status} - ${job.ExtendedStatus || ''}`);
-                    if (job.Status === 'Completed') {
-                        this.successReportLines.push(`Batch Completed successfully. Processed ${job.JobItemsProcessed} items.`);
-                        
-                        // Fetch detailed report
-                        try {
-                            const reportJson = await getBatchReport({ jobId: this.batchJobId });
-                                
-                            if (reportJson) {
-                                this.batchReportRows = JSON.parse(reportJson);
-                            }
-                        } catch (err) {
-                            console.error('Failed to load batch report', err);
-                        }
-
-                    } else {
-                        this.errorReportLines.push(`Batch ended with status: ${job.Status}. Errors: ${job.NumberOfErrors}`);
-                    }
-                    this.batchJobId = undefined; // Stop polling state
-                } else {
-                    // Continue polling
-                    // eslint-disable-next-line @lwc/lwc/no-async-operation
-                    setTimeout(() => this.pollBatchStatus(), 2000);
+        // Destination input handlers
+        handleDestUsernameChange = (event) => { this.destUsername = event.target.value; this.destTestMessage = undefined; };
+        handleDestPasswordChange = (event) => { this.destPassword = event.target.value; this.destTestMessage = undefined; };
+        handleDestEnvironmentChange = (event) => { this.destEnvironment = event.detail.value; this.destTestMessage = undefined; };
+        handleDepthChange = (event) => {
+            const raw = parseInt(event.target.value, 10);
+            const safe = Number.isFinite(raw) && raw >= 0 ? raw : 0;
+            this.maxDepth = safe;
+            this.dependencyTree = undefined;
+        };
+        // New picklist handlers to centralize YES/NO and keep Source/Destination synchronized
+        handleSourceCurrentPick = (event) => {
+            const val = (event && event.detail && event.detail.value) || 'no';
+            this.sourceUseCurrent = val;
+            if (val === 'yes') {
+                // Force destination to NO
+                this.destUseCurrent = 'no';
+                this.currentOrgFor = 'source';
+                this.destTestMessage = undefined;
+                // Switch to current-org for source: reset external session/UI and load objects
+                this.clearSourceSession();
+                this.resetObjectSelection();
+                this.fetchAvailableObjectsSource();
+            } else {
+                // Turning off current org for source
+                if (this.isSourceCurrentOrg) {
+                    this.currentOrgFor = this.destUseCurrent === 'yes' ? 'destination' : '';
+                }
+                this.clearSourceSession();
+                this.resetObjectSelection();
+            }
+        };
+    
+        handleDestinationCurrentPick = (event) => {
+            const val = (event && event.detail && event.detail.value) || 'no';
+            this.destUseCurrent = val;
+            if (val === 'yes') {
+                // Force source to NO
+                this.sourceUseCurrent = 'no';
+                this.currentOrgFor = 'destination';
+                // Clear destination external session as we are using current org
+                this.destSessionId = undefined;
+                this.destInstanceUrl = undefined;
+                this.destTestMessage = undefined;
+            } else {
+                // Turning off current org for destination
+                if (this.isDestinationCurrentOrg) {
+                    this.currentOrgFor = this.sourceUseCurrent === 'yes' ? 'source' : '';
                 }
             }
-        } catch (e) {
-            console.error('Polling error', e);
-            this.importStatus.inProgress = false;
+        };
+    
+        // Helper utilities to centralize connection routing
+        isSourceCurrent() { return this.isSourceCurrentOrg; }
+        isDestinationCurrent() { return this.isDestinationCurrentOrg; }
+        ensureSourceConnected(message = 'Please test connection first') {
+            if (this.isSourceCurrentOrg) return true;
+            if (this.sessionId && this.instanceUrl) return true;
+            this.error = message;
+            return false;
         }
-    }
+        ensureDestinationConnected(message = 'Please test connection first') {
+            if (this.isDestinationCurrentOrg) return true;
+            if (this.destSessionId && this.destInstanceUrl) return true;
+            this.error = message;
+            return false;
+        }
+        routeSourceCall(fnCurrent, fnSession) {
+            return this.isSourceCurrentOrg ? fnCurrent() : fnSession();
+        }
+        routeDestinationCall(fnCurrent, fnSession) {
+            return this.isDestinationCurrentOrg ? fnCurrent() : fnSession();
+        }
+        handleExcludedObjectsChange = (event) => { this.excludedObjects = event.detail.value || []; this.dependencyTree = undefined; };
+        handleSelectStandardObjects = () => { this.excludedObjects = this.standardObjects; this.dependencyTree = undefined; };
+        handleSelectCustomObjects = () => { this.excludedObjects = this.customObjects; this.dependencyTree = undefined; };
+        handleClearExclusions = () => { this.excludedObjects = []; this.dependencyTree = undefined; };
+    
+        // Current Org selection state
+        @track currentOrgFor = '';
+        get isSourceCurrentOrg() { return this.currentOrgFor === 'source'; }
+        get isDestinationCurrentOrg() { return this.currentOrgFor === 'destination'; }
+        get sourceSectionClass() { return this.isSourceCurrentOrg ? 'section-disabled' : ''; }
+        get destinationSectionClass() { return this.isDestinationCurrentOrg ? 'section-disabled' : ''; }
+        handleSelectSourceCurrent = () => {
+            if (this._suppressSourceChangeOnce) {
+                this._suppressSourceChangeOnce = false;
+                return;
+            }
+            if (!this.isSourceCurrentOrg) {
+                this.currentOrgFor = 'source';
+                this.sourceUseCurrent = 'yes';
+                this.destUseCurrent = 'no';
+                this.destTestMessage = undefined;
+                // Clear any external source session and fetch current org objects
+                this.clearSourceSession();
+                this.resetObjectSelection();
+                this.fetchAvailableObjectsSource();
+            }
+        };
+        handleSelectDestinationCurrent = () => {
+            if (this._suppressDestChangeOnce) {
+                this._suppressDestChangeOnce = false;
+                return;
+            }
+            if (!this.isDestinationCurrentOrg) {
+                this.currentOrgFor = 'destination';
+                this.sourceUseCurrent = 'no';
+                this.destUseCurrent = 'yes';
+                // Clear destination external session
+                this.destSessionId = undefined;
+                this.destInstanceUrl = undefined;
+                this.destTestMessage = undefined;
+            }
+        };
+    
+        // Allow unselecting the currently selected radio by clicking it again
+        handleToggleSourceCurrent = (event) => {
+            try { event && event.stopPropagation && event.stopPropagation(); } catch (e) { /* no-op */ }
+            if (this.isSourceCurrentOrg) {
+                // Suppress the immediate onchange that lightning-input may fire
+                this._suppressSourceChangeOnce = true;
+                // Unselect current-org for source
+                this.currentOrgFor = '';
+                // Reset UI that depends on source connection/object list
+                this.clearSourceSession();
+                this.resetObjectSelection();
+            }
+            // If not selected, normal onchange will handle selecting it
+        };
+    
+        handleToggleDestinationCurrent = (event) => {
+            try { event && event.stopPropagation && event.stopPropagation(); } catch (e) { /* no-op */ }
+            if (this.isDestinationCurrentOrg) {
+                // Suppress the immediate onchange that lightning-input may fire
+                this._suppressDestChangeOnce = true;
+                // Unselect current-org for destination
+                this.currentOrgFor = '';
+                // No additional cleanup needed for destination beyond UI state
+            }
+            // If not selected, normal onchange will handle selecting it
+        };
+        get hasPlan() {
+            // Consider a plan valid if we built a root node, even with no edges
+            return this.planReady && !!this.planRoot;
+        }
+    
+        get canShowPlanControls() {
+            return this.hasPlan;
+        }
+    
+        get hasCollectedIds() {
+            return this.lastQueriedIdSets && typeof this.lastQueriedIdSets.size === 'number' && this.lastQueriedIdSets.size > 0;
+        }
+    
+        get isExportDisabled() {
+            return !this.hasPlan || !this.hasExportOrder || this.isLoading;
+        }
+    
+        get isFinalExportDisabled() {
+            const destConnected = this.isDestinationCurrentOrg || (!!this.destSessionId && !!this.destInstanceUrl);
+            return this.isExportDisabled || !this.hasCollectedIds || !destConnected;
+        }
+    
+        get hasFinalQueries() {
+            return Array.isArray(this.finalExportQueries) && this.finalExportQueries.length > 0;
+        }
+    
+        get isStartImportDisabled() {
+            // Support import if Destination is connected (Current or Remote)
+            return !this.hasFinalQueries || this.isLoading || !this.isDestinationConnected || this.isBatchProcessing;
+        }
+    
+        // Import UI computed getters
+        get importProgressPercentage() {
+            if (this.isBatchProcessing && this.importStatus.totalObjects > 0) {
+                 const p = this.importStatus.processedObjects;
+                 const t = this.importStatus.totalObjects;
+                 return Math.floor((Math.min(p, t) / t) * 100);
+            }
+            const t = this.importStatus && this.importStatus.totalObjects ? this.importStatus.totalObjects : 0;
+            const p = this.importStatus && this.importStatus.processedObjects ? this.importStatus.processedObjects : 0;
+            if (!t) return 0;
+            const pct = Math.floor((Math.min(p, t) / t) * 100);
+            return isNaN(pct) ? 0 : pct;
+        }
+        get hasImportResults() {
+            const s = (this.importStatus && this.importStatus.successCount) || 0;
+            const e = (this.importStatus && this.importStatus.errorCount) || 0;
+            const finished = !this.importStatus.inProgress && !this.isBatchProcessing;
+            return finished && (s + e > 0 || this.batchStatus === 'Completed');
+        }
+        get hasSuccessReport() { return (this.successReportLines && this.successReportLines.length > 0); }
+        get hasErrorReport() { return (this.errorReportLines && this.errorReportLines.length > 0); }
+        get formattedSuccessReport() { return (this.successReportLines || []).join('<br/>'); }
+        get formattedErrorReport() { return (this.errorReportLines || []).join('\n'); }
+        get hasBatchReportRows() { return this.batchReportRows && this.batchReportRows.length > 0; }
+        get hasSuccessRows() { return this.successRows && this.successRows.length > 0; }
+        get hasErrorRows() { return this.errorRows && this.errorRows.length > 0; }
+    
+        async handleStartImport() {
+            if (!this.hasFinalQueries) {
+                this.error = 'No final export queries available. Run Final Export first';
+                return;
+            }
+            if (!this.isDestinationConnected) {
+                this.error = 'Start Import requires a connected Destination';
+                return;
+            }
+    
+            this.error = undefined;
+            this.isLoading = true;
+            this.batchReportRows = [];
+            this.successRows = [];
+            this.errorRows = [];
+    
+            try {
+                // 1. Organize Tasks in Dependency Order (Parents First)
+                const groupedQueries = new Map();
+                for (const q of this.finalExportQueries) {
+                    if (!groupedQueries.has(q.objectName)) groupedQueries.set(q.objectName, []);
+                    groupedQueries.get(q.objectName).push(q);
+                }
+    
+                const orderedTasks = [];
+                // 'exportOrder' is topologically sorted (Parent -> Child). 
+                for (const objName of this.exportOrder) {
+                    if (groupedQueries.has(objName)) {
+                        orderedTasks.push(...groupedQueries.get(objName));
+                    }
+                }
+    
+                // 2. Build Reference Map (Schema for Batch)
+                // Transform planEdges (Map<String, Array>) to Map<String, Map<String, String>>
+                const referenceMap = {};
+                for (const [obj, edges] of this.planEdges.entries()) {
+                    const fieldMap = {};
+                    if (Array.isArray(edges)) {
+                        for (const e of edges) {
+                            if (e.fieldName && e.target) {
+                                fieldMap[e.fieldName] = e.target;
+                            }
+                        }
+                    }
+                    referenceMap[obj] = fieldMap;
+                }
+    
+                // 3. Start Batch
+                const sourceSess = this.isSourceCurrentOrg ? null : this.sessionId;
+                const sourceUrl = this.isSourceCurrentOrg ? null : this.instanceUrl;
+                const destSess = this.isDestinationCurrentOrg ? null : this.destSessionId;
+                const destUrl = this.isDestinationCurrentOrg ? null : this.destInstanceUrl;
+    
+                this.batchJobId = await startDataSeedingBatch({
+                    sourceSessionId: sourceSess,
+                    sourceInstanceUrl: sourceUrl,
+                    destSessionId: destSess,
+                    destInstanceUrl: destUrl,
+                    tasks: orderedTasks,
+                    planEdges: referenceMap
+                });
+    
+                this.batchStatus = 'Queued';
+                this.importStatus = {
+                    inProgress: true,
+                    currentObject: 'Initializing Batch...',
+                    processedObjects: 0,
+                    totalObjects: orderedTasks.length, // Track progress by task count
+                    successCount: 0,
+                    errorCount: 0,
+                    detailedMessages: []
+                };
+                this.successReportLines = [];
+                this.errorReportLines = [];
+                
+                // Start Polling
+                this.pollBatchStatus();
+    
+            } catch (e) {
+                const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Batch start failed');
+                this.error = msg;
+                this.importStatus.inProgress = false;
+            } finally {
+                this.isLoading = false;
+            }
+        }
+    
+        async pollBatchStatus() {
+            if (!this.batchJobId) return;
+            
+            try {
+                const job = await getBatchJobStatus({ jobId: this.batchJobId });
+                if (job) {
+                    this.batchStatus = job.Status;
+                    this.importStatus.processedObjects = job.JobItemsProcessed;
+                    this.importStatus.totalObjects = job.TotalJobItems;
+                    this.importStatus.errorCount = job.NumberOfErrors;
+                    
+                    const pct = job.TotalJobItems > 0 ? Math.floor((job.JobItemsProcessed / job.TotalJobItems) * 100) : 0;
+                    this.importStatus.currentObject = `Batch ${job.Status} (${pct}%)`;
+    
+                    if (['Completed', 'Failed', 'Aborted'].includes(job.Status)) {
+                        this.importStatus.inProgress = false;
+                        if (job.Status !== 'Completed') {
+                            this.importStatus.detailedMessages.push(`Batch Finished with status: ${job.Status} - ${job.ExtendedStatus || ''}`);
+                        }
+                        if (job.Status === 'Completed') {
+                            this.successReportLines.push(`Batch Completed successfully. Processed ${job.JobItemsProcessed} items.`);
+                            
+                            // Fetch detailed report
+                            try {
+                                const reportJson = await getBatchReport({ jobId: this.batchJobId });
+                                    
+                                if (reportJson) {
+                                    const rows = JSON.parse(reportJson);
+                                    this.batchReportRows = rows;
+                                    
+                                    // Separate rows into success and error lists
+                                    this.successRows = rows.filter(r => r.status === 'Success');
+                                    this.errorRows = rows.filter(r => r.status !== 'Success');
+    
+                                    this.importStatus.successCount = this.successRows.length;
+                                    this.importStatus.errorCount = this.errorRows.length;
+                                }
+                            } catch (err) {
+                                console.error('Failed to load batch report', err);
+                            }
+    
+                        } else {
+                            this.errorReportLines.push(`Batch ended with status: ${job.Status}. Errors: ${job.NumberOfErrors}`);
+                        }
+                        this.batchJobId = undefined; // Stop polling state
+                    } else {
+                        // Continue polling
+                        // eslint-disable-next-line @lwc/lwc/no-async-operation
+                        setTimeout(() => this.pollBatchStatus(), 2000);
+                    }
+                }
+            } catch (e) {
+                console.error('Polling error', e);
+                this.importStatus.inProgress = false;
+            }
+        }
 
     handlePlanNodeToggle = (event) => {
         const { nodeId } = event.detail || {};
@@ -1695,10 +1711,10 @@ export default class ExternalOrgQuery extends LightningElement {
                 const srcFields = (sourceCreatableMap && sourceCreatableMap[objectName]) || [];
                 const dstFields = (destCreatableMap && destCreatableMap[objectName]) || [];
                 const dstSet = new Set(dstFields);
-                const intersect = srcFields.filter((f) => f && f !== 'Id' && dstSet.has(f));
+                const intersect = srcFields.filter((f) => f && f !== 'Id' && f !== 'OwnerId' && dstSet.has(f));
                 
                 // Identify schema mismatches
-                const droppedFields = srcFields.filter(f => f && f !== 'Id' && !dstSet.has(f));
+                const droppedFields = srcFields.filter(f => f && f !== 'Id' && f !== 'OwnerId' && !dstSet.has(f));
                 if (droppedFields.length > 0) {
                     this.schemaWarnings.set(objectName, droppedFields);
                 }

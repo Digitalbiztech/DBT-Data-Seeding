@@ -23,6 +23,7 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
         public String status; // 'Success' or 'Error'
         public String message;
         public String recordUrl;
+        public String sourceUrl;
     }
 
     // State: List of all logs (success and error)
@@ -145,6 +146,7 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
         Map<String, String> objectMap = this.idRemap.get(objectName);
         
         String baseUrl = String.isNotBlank(destInstanceUrl) ? destInstanceUrl : URL.getOrgDomainUrl().toExternalForm();
+        String srcBaseUrl = String.isNotBlank(sourceInstanceUrl) ? sourceInstanceUrl : URL.getOrgDomainUrl().toExternalForm();
 
         for (Integer i = 0; i < results.size(); i++) {
             ExternalOrgQueryController.InsertMapping res = results[i];
@@ -154,6 +156,7 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
             entry.objectName = objectName;
             entry.sourceId = res.oldId;
             entry.name = (original.containsKey('Name')) ? String.valueOf(original.get('Name')) : res.oldId;
+            entry.sourceUrl = srcBaseUrl + '/' + res.oldId;
             
             if (res.success && res.newId != null) {
                 entry.destId = res.newId;
