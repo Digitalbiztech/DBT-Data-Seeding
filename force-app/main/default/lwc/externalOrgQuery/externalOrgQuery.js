@@ -1,4 +1,3 @@
-﻿
 import { LightningElement, track } from 'lwc';
 import testConnection from '@salesforce/apex/ExternalOrgQueryController.testConnection';
 import getAvailableObjects from '@salesforce/apex/ExternalOrgQueryController.getAvailableObjects';
@@ -16,6 +15,7 @@ import updateRecordsRemote from '@salesforce/apex/ExternalOrgQueryController.upd
 import findMatchingRecords from '@salesforce/apex/ExternalOrgQueryController.findMatchingRecords';
 import startDataSeedingBatch from '@salesforce/apex/ExternalOrgQueryController.startDataSeedingBatch';
 import getBatchJobStatus from '@salesforce/apex/ExternalOrgQueryController.getBatchJobStatus';
+import getBatchReport from '@salesforce/apex/ExternalOrgQueryController.getBatchReport';
 
 export default class ExternalOrgQuery extends LightningElement {
     // UI state for external org connection and query execution
@@ -71,6 +71,7 @@ export default class ExternalOrgQuery extends LightningElement {
     };
     @track batchJobId;
     @track batchStatus;
+    @track batchReportRows = [];
     
     get isBatchProcessing() {
         return !!this.batchJobId && this.batchStatus !== 'Completed' && this.batchStatus !== 'Failed' && this.batchStatus !== 'Aborted';
@@ -382,6 +383,7 @@ export default class ExternalOrgQuery extends LightningElement {
     get hasErrorReport() { return (this.errorReportLines && this.errorReportLines.length > 0); }
     get formattedSuccessReport() { return (this.successReportLines || []).join('<br/>'); }
     get formattedErrorReport() { return (this.errorReportLines || []).join('\n'); }
+    get hasBatchReportRows() { return this.batchReportRows && this.batchReportRows.length > 0; }
 
     async handleStartImport() {
         if (!this.hasFinalQueries) {
@@ -395,6 +397,7 @@ export default class ExternalOrgQuery extends LightningElement {
 
         this.error = undefined;
         this.isLoading = true;
+        this.batchReportRows = [];
 
         try {
             // 1. Organize Tasks in Dependency Order (Parents First)
@@ -486,6 +489,18 @@ export default class ExternalOrgQuery extends LightningElement {
                     this.importStatus.detailedMessages.push(`Batch Finished: ${job.Status} - ${job.ExtendedStatus || ''}`);
                     if (job.Status === 'Completed') {
                         this.successReportLines.push(`Batch Completed successfully. Processed ${job.JobItemsProcessed} items.`);
+                        
+                        // Fetch detailed report
+                        try {
+                            const reportJson = await getBatchReport({ jobId: this.batchJobId });
+                                
+                            if (reportJson) {
+                                this.batchReportRows = JSON.parse(reportJson);
+                            }
+                        } catch (err) {
+                            console.error('Failed to load batch report', err);
+                        }
+
                     } else {
                         this.errorReportLines.push(`Batch ended with status: ${job.Status}. Errors: ${job.NumberOfErrors}`);
                     }
@@ -1017,7 +1032,7 @@ export default class ExternalOrgQuery extends LightningElement {
     get currentSchemaWarnings() { return this.schemaWarnings.get(this.currentWizardObject) || []; }
     get hasSchemaWarnings() { return this.currentSchemaWarnings.length > 0; }
     get currentMatchingObject() { return { objectName: this.currentWizardObject }; }
-    get wizardProgressText() { const i=this.wizard.index+1; const n=this.wizard.objects.length||0; return `${i} of ${n}`; }
+    get wizardProgressText() { const i=this.wizard.index+1; const n=this.wizard.objects.length||0; return `${i} of ${n}`}
     get totalWizardObjectCount() { return this.wizard.objects.length || 0; }
     get processedObjectCount() { return Array.from(this.matchResultsByObject.values()).filter(v => v && v.report).length; }
 
@@ -1185,8 +1200,22 @@ export default class ExternalOrgQuery extends LightningElement {
             const report = { successCount: 0, errorCount: 0, successes: [], errors: [] };
             if (Array.isArray(results)) {
                 for (const r of results) {
-                    if (r && r.success) { report.successCount += 1; report.successes.push({ oldId: r.oldId, newId: r.newId }); }
-                    else { report.errorCount += 1; report.errors.push({ oldId: (r && r.oldId) || '', errorMessage: (r && r.errorMessage) || 'Unknown error' }); }
+                    if (r && r.success) { 
+                        report.successCount += 1; 
+                        report.successes.push({ 
+                            oldId: r.oldId, 
+                            newId: r.newId,
+                            name: r.name,
+                            recordUrl: r.recordUrl
+                        }); 
+                    }
+                    else { 
+                        report.errorCount += 1; 
+                        report.errors.push({ 
+                            oldId: (r && r.oldId) || '', 
+                            errorMessage: (r && r.errorMessage) || 'Unknown error' 
+                        }); 
+                    }
                 }
             }
             // Save report and update counts
@@ -1241,10 +1270,20 @@ export default class ExternalOrgQuery extends LightningElement {
                     for (const r of results) {
                         if (r && r.success) { 
                             report.successCount += 1; 
-                            report.successes.push({ oldId: r.oldId, newId: r.newId, type: 'Insert' }); 
+                            report.successes.push({ 
+                                oldId: r.oldId, 
+                                newId: r.newId, 
+                                type: 'Insert',
+                                name: r.name,
+                                recordUrl: r.recordUrl
+                            }); 
                         } else { 
                             report.errorCount += 1; 
-                            report.errors.push({ oldId: (r && r.oldId) || '', errorMessage: (r && r.errorMessage) || 'Unknown error', type: 'Insert' }); 
+                            report.errors.push({ 
+                                oldId: (r && r.oldId) || '', 
+                                errorMessage: (r && r.errorMessage) || 'Unknown error', 
+                                type: 'Insert' 
+                            }); 
                         }
                     }
                 }
@@ -1276,7 +1315,13 @@ export default class ExternalOrgQuery extends LightningElement {
                         const sourceId = matched[idx].source.Id;
                         if (r && r.success) {
                             report.successCount += 1;
-                            report.successes.push({ oldId: sourceId, newId: r.newId, type: 'Update' });
+                            report.successes.push({ 
+                                oldId: sourceId, 
+                                newId: r.newId, 
+                                type: 'Update',
+                                name: r.name,
+                                recordUrl: r.recordUrl
+                            });
                         } else {
                             report.errorCount += 1;
                             report.errors.push({ oldId: sourceId, errorMessage: (r && r.errorMessage) || 'Unknown error', type: 'Update' });
@@ -1543,7 +1588,7 @@ export default class ExternalOrgQuery extends LightningElement {
                 if (!cleaned.length) {
                     continue;
                 }
-                const where = cleaned.map((id) => `'${id.replace(/'/g, "\\'")}'`).join(',');
+                const where = cleaned.map((id) => `'${id.replace(/'/g, "\'")}'`).join(',');
                 const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
                 await this.processQueryRows(objectName, soql, edges, queried, pending);
             }
@@ -1662,7 +1707,7 @@ export default class ExternalOrgQuery extends LightningElement {
                 const selectClause = uniqueFields.join(', ');
 
                 for (const batch of this.chunkArray(ids, 200)) {
-                    const where = batch.filter(Boolean).map((id) => `'${id.replace(/'/g, "\\'")}'`).join(',');
+                    const where = batch.filter(Boolean).map((id) => `'${id.replace(/'/g, "\'")}'`).join(',');
                     if (!where) continue;
                     const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
                     queries.push({ objectName, count: batch.length, soql, fields: uniqueFields });
@@ -1683,17 +1728,17 @@ export default class ExternalOrgQuery extends LightningElement {
         }
     }
 
-        handleCheckMatchingDestination = () => {
+    handleCheckMatchingDestination = () => {
 
-            // Placeholder for later implementation
+        // Placeholder for later implementation
 
-            console.log('Check Matching in Destination clicked');
+        console.log('Check Matching in Destination clicked');
 
-        };
+    };
 
     
 
-        computeExportOrder(edgesByObject, rootObject, idSetKeys = []) {
+    computeExportOrder(edgesByObject, rootObject, idSetKeys = []) {
         // Build nodes, adjacency (parent -> children), and in-degree(children)
         const nodes = new Set(idSetKeys || []);
         const adj = new Map();

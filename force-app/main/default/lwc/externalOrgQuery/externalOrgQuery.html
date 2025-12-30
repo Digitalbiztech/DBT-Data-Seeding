@@ -374,21 +374,41 @@
                                                         </div>
                                                     </div>
                                                     <template if:true={currentReport.successes.length}>
-                                                        <div class="slds-box slds-theme_success slds-m-bottom_small">
-                                                            <div class="slds-text-title_bold">Successes</div>
-                                                            <template for:each={currentReport.successes} for:item="s">
-                                                                <div key={s.oldId} class="slds-text-body_small">
-                                                                    <template if:true={s.type}><strong>{s.type}:</strong> </template>
-                                                                    {s.oldId} &rarr; {s.newId}
-                                                                </div>
-                                                            </template>
+                                                        <div class="slds-box slds-theme_success slds-m-bottom_small" style="max-height: 200px; overflow-y:auto;">
+                                                            <div class="slds-text-title_bold slds-m-bottom_x-small">Successes</div>
+                                                            <table class="slds-table slds-table_cell-buffer slds-table_bordered">
+                                                                <thead>
+                                                                    <tr class="slds-line-height_reset">
+                                                                        <th scope="col"><div class="slds-truncate">Name</div></th>
+                                                                        <th scope="col"><div class="slds-truncate">Action</div></th>
+                                                                        <th scope="col"><div class="slds-truncate">Link</div></th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    <template for:each={currentReport.successes} for:item="s">
+                                                                        <tr key={s.oldId}>
+                                                                            <td><div class="slds-truncate" title={s.name}>{s.name}</div></td>
+                                                                            <td><div class="slds-truncate">{s.type}</div></td>
+                                                                            <td>
+                                                                                <div class="slds-truncate">
+                                                                                    <template if:true={s.recordUrl}>
+                                                                                        <lightning-formatted-url value={s.recordUrl} label="View" target="_blank"></lightning-formatted-url>
+                                                                                    </template>
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+                                                                    </template>
+                                                                </tbody>
+                                                            </table>
                                                         </div>
                                                     </template>
                                                     <template if:true={currentReport.errors.length}>
-                                                        <div class="slds-box slds-theme_error slds-m-bottom_small">
+                                                        <div class="slds-box slds-theme_error slds-m-bottom_small" style="max-height: 200px; overflow-y:auto;">
                                                             <div class="slds-text-title_bold">Errors</div>
                                                             <template for:each={currentReport.errors} for:item="e">
-                                                                <div key={e.oldId} class="slds-text-body_small">{e.oldId}: {e.errorMessage}</div>
+                                                                <div key={e.oldId} class="slds-text-body_small">
+                                                                    <strong>{e.oldId}:</strong> {e.errorMessage} <span if:true={e.type}>({e.type})</span>
+                                                                </div>
                                                             </template>
                                                         </div>
                                                     </template>
@@ -496,31 +516,75 @@
                                         </div>
                                     </div>
                                     <div class="slds-m-top_small" style="max-height: 400px; overflow-y: auto;">
-                                        <!-- Success Report -->
-                                        <template if:true={hasSuccessReport}>
-                                            <div class="slds-box slds-theme_success slds-m-bottom_small">
-                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Success Report</div>
-                                                <lightning-formatted-rich-text class="slds-text-body_small" value={formattedSuccessReport}></lightning-formatted-rich-text>
+                                        
+                                        <!-- Detailed Table Report (Preferred) -->
+                                        <template if:true={hasBatchReportRows}>
+                                            <div class="slds-box slds-theme_shade slds-m-bottom_small">
+                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Detailed Record Report</div>
+                                                <table class="slds-table slds-table_cell-buffer slds-table_bordered">
+                                                    <thead>
+                                                        <tr class="slds-line-height_reset">
+                                                            <th scope="col"><div class="slds-truncate">Object</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Name</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Status</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Message</div></th>
+                                                            <th scope="col"><div class="slds-truncate">Link</div></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <template for:each={batchReportRows} for:item="row">
+                                                            <tr key={row.sourceId}>
+                                                                <td><div class="slds-truncate">{row.objectName}</div></td>
+                                                                <td><div class="slds-truncate" title={row.name}>{row.name}</div></td>
+                                                                <td>
+                                                                    <div class="slds-truncate">
+                                                                        <span if:true={row.recordUrl} class="slds-text-color_success">Success</span>
+                                                                        <span if:false={row.recordUrl} class="slds-text-color_error">Error</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td><div class="slds-truncate" title={row.message}>{row.message}</div></td>
+                                                                <td>
+                                                                    <div class="slds-truncate">
+                                                                        <template if:true={row.recordUrl}>
+                                                                            <lightning-formatted-url value={row.recordUrl} label="View" target="_blank"></lightning-formatted-url>
+                                                                        </template>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </template>
-                                        
-                                        <!-- Error Report -->
-                                        <template if:true={hasErrorReport}>
-                                            <div class="slds-box slds-theme_error slds-m-bottom_small">
-                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Error Report</div>
-                                                <pre class="slds-text-body_small">{formattedErrorReport}</pre>
-                                            </div>
-                                        </template>
-                                        
-                                        <!-- Detailed Messages -->
-                                        <div class="slds-box slds-theme_default">
-                                            <div class="slds-text-heading_small slds-m-bottom_x-small">Detailed Log</div>
-                                            <template for:each={importStatus.detailedMessages} for:item="message">
-                                                <div key={message} class="slds-text-body_small slds-m-vertical_xx-small">
-                                                    {message}
+
+                                        <!-- Fallback Reports -->
+                                        <template if:false={hasBatchReportRows}>
+                                            <!-- Success Report -->
+                                            <template if:true={hasSuccessReport}>
+                                                <div class="slds-box slds-theme_success slds-m-bottom_small">
+                                                    <div class="slds-text-heading_small slds-m-bottom_x-small">Success Report</div>
+                                                    <lightning-formatted-rich-text class="slds-text-body_small" value={formattedSuccessReport}></lightning-formatted-rich-text>
                                                 </div>
                                             </template>
-                                        </div>
+                                            
+                                            <!-- Error Report -->
+                                            <template if:true={hasErrorReport}>
+                                                <div class="slds-box slds-theme_error slds-m-bottom_small">
+                                                    <div class="slds-text-heading_small slds-m-bottom_x-small">Error Report</div>
+                                                    <pre class="slds-text-body_small">{formattedErrorReport}</pre>
+                                                </div>
+                                            </template>
+                                            
+                                            <!-- Detailed Messages -->
+                                            <div class="slds-box slds-theme_default">
+                                                <div class="slds-text-heading_small slds-m-bottom_x-small">Detailed Log</div>
+                                                <template for:each={importStatus.detailedMessages} for:item="message">
+                                                    <div key={message} class="slds-text-body_small slds-m-vertical_xx-small">
+                                                        {message}
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
                                     </div>
                                 </div>
                             </template>

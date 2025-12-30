@@ -10,22 +10,23 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
     private List<Map<String, Object>> taskList;
     
     // State: Maps old Id -> new Id. Key: ObjectName, Value: Map<OldId, NewId>
-    // Note: We flatten this to Map<String, String> "ObjectName|OldId" -> "NewId" if needed, 
-    // but Map<String, Map<String, String>> is clearer.
     private Map<String, Map<String, String>> idRemap;
     
     // Metadata cache for reference fields: ObjectName -> Map<FieldName, ReferenceToObjectName>
     private Map<String, Map<String, String>> referenceFieldCache;
 
-    public class BatchError {
-        @AuraEnabled public String objectName;
-        @AuraEnabled public String recordId;
-        @AuraEnabled public String message;
-        @AuraEnabled public String stackTrace;
+    public class LogEntry {
+        public String objectName;
+        public String sourceId;
+        public String destId;
+        public String name;
+        public String status; // 'Success' or 'Error'
+        public String message;
+        public String recordUrl;
     }
 
-    // State: List of errors encountered
-    private List<BatchError> errors;
+    // State: List of all logs (success and error)
+    private List<LogEntry> logs;
 
     public DataSeedingBatch(
         String sourceSessionId, 
@@ -42,7 +43,7 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
         this.taskList = tasks;
         this.idRemap = new Map<String, Map<String, String>>();
         this.referenceFieldCache = planEdges;
-        this.errors = new List<BatchError>();
+        this.logs = new List<LogEntry>();
     }
 
     public Iterable<Map<String, Object>> start(Database.BatchableContext bc) {
@@ -59,21 +60,13 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
                 processTask(task);
             } catch (Exception e) {
                 System.debug('Error processing task ' + objName + ': ' + e.getMessage() + '\n' + e.getStackTraceString());
-                logError(objName, null, e.getMessage(), e.getStackTraceString());
+                LogEntry err = new LogEntry();
+                err.objectName = objName;
+                err.status = 'Error';
+                err.message = e.getMessage();
+                this.logs.add(err);
             }
         }
-    }
-
-    private void logError(String obj, String recId, String msg, String stack) {
-        if (this.errors.size() < 200) {
-            BatchError err = new BatchError();
-            err.objectName = obj;
-            err.recordId = recId;
-            err.message = msg;
-            err.stackTrace = stack;
-            this.errors.add(err);
-        }
-        System.debug('DataSeeding Error [' + obj + ']: ' + msg);
     }
 
     private void processTask(Map<String, Object> task) {
@@ -96,17 +89,20 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
             return;
         }
 
-        // 2. Remap Relationships
+        // 2. Remap Relationships & Prepare Insert
         List<Map<String, Object>> recordsToInsert = new List<Map<String, Object>>();
         Map<String, String> refFields = this.referenceFieldCache.containsKey(objectName) 
             ? this.referenceFieldCache.get(objectName) 
             : new Map<String, String>();
         
-        System.debug('Reference fields for ' + objectName + ': ' + refFields);
+        // Helper map to lookup original row data by index for logging
+        List<Map<String, Object>> originalRows = new List<Map<String, Object>>();
 
         for (Map<String, Object> row : rows) {
             String oldId = (String) row.get('Id');
             if (oldId == null) continue;
+            
+            originalRows.add(row);
 
             Map<String, Object> newRec = new Map<String, Object>();
             for (String field : row.keySet()) {
@@ -119,21 +115,13 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
                     if (this.idRemap.containsKey(parentObj)) {
                         Map<String, String> parentMap = this.idRemap.get(parentObj);
                         if (val instanceof String && parentMap.containsKey((String)val)) {
-                            Object newVal = parentMap.get((String)val);
-                            System.debug('Remapping ' + field + ' from ' + val + ' to ' + newVal);
-                            val = newVal;
-                        } else {
-                             // If we can't find the parent, and it's required? 
-                             // For now we keep the old ID, which will likely fail reference check in dest,
-                             // or we could null it out.
-                             // Leaving as is allows for "external ID" references if they happen to match, 
-                             // but usually it fails.
+                            val = parentMap.get((String)val);
                         }
                     }
                 }
                 newRec.put(field, val);
             }
-            newRec.put('Id', oldId); // Pass oldId for tracking (will be removed before insert by controller if needed)
+            newRec.put('Id', oldId); // Pass oldId for tracking
             recordsToInsert.add(newRec);
         }
 
@@ -150,25 +138,34 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
             throw new AuraHandledException('Destination write failed for ' + objectName + ': ' + e.getMessage());
         }
 
-        // 4. Update ID Map and capture row-level errors
+        // 4. Update ID Map and Capture Logs
         if (!this.idRemap.containsKey(objectName)) {
             this.idRemap.put(objectName, new Map<String, String>());
         }
         Map<String, String> objectMap = this.idRemap.get(objectName);
         
-        Integer successCount = 0;
-        Integer errorCount = 0;
+        String baseUrl = String.isNotBlank(destInstanceUrl) ? destInstanceUrl : URL.getOrgDomainUrl().toExternalForm();
 
-        for (ExternalOrgQueryController.InsertMapping res : results) {
-            if (res.success && res.oldId != null && res.newId != null) {
+        for (Integer i = 0; i < results.size(); i++) {
+            ExternalOrgQueryController.InsertMapping res = results[i];
+            Map<String, Object> original = originalRows[i];
+            
+            LogEntry entry = new LogEntry();
+            entry.objectName = objectName;
+            entry.sourceId = res.oldId;
+            entry.name = (original.containsKey('Name')) ? String.valueOf(original.get('Name')) : res.oldId;
+            
+            if (res.success && res.newId != null) {
+                entry.destId = res.newId;
+                entry.status = 'Success';
+                entry.recordUrl = baseUrl + '/' + res.newId;
                 objectMap.put(res.oldId, res.newId);
-                successCount++;
-            } else if (!res.success) {
-                logError(objectName, res.oldId, res.errorMessage, null);
-                errorCount++;
+            } else {
+                entry.status = 'Error';
+                entry.message = res.errorMessage;
             }
+            this.logs.add(entry);
         }
-        System.debug('Batch result for ' + objectName + ': ' + successCount + ' successes, ' + errorCount + ' errors.');
     }
 
     private List<Map<String, Object>> fetchSourceRecords(String soql) {
@@ -183,11 +180,18 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
 
     public void finish(Database.BatchableContext bc) {
         System.debug('Data Seeding Batch Completed.');
-        if (!this.errors.isEmpty()) {
-            System.debug('Errors encountered: ' + this.errors.size());
-            for(BatchError e : this.errors) {
-                System.debug('Err: ' + e.objectName + ' ' + e.recordId + ' ' + e.message);
-            }
+        
+        try {
+            // Save logs to a ContentVersion file for retrieval by UI
+            ContentVersion cv = new ContentVersion();
+            cv.Title = 'SeedingReport_' + bc.getJobId();
+            cv.PathOnClient = 'SeedingReport.json';
+            cv.VersionData = Blob.valueOf(JSON.serialize(this.logs));
+            cv.IsMajorVersion = true;
+            insert cv;
+            System.debug('Saved execution report: ' + cv.Id);
+        } catch (Exception e) {
+            System.debug('Failed to save batch report: ' + e.getMessage());
         }
     }
 }

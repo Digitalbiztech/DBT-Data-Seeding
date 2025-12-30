@@ -854,6 +854,24 @@ public with sharing class ExternalOrgQueryController {
         @AuraEnabled public String newId;
         @AuraEnabled public Boolean success;
         @AuraEnabled public String errorMessage;
+        @AuraEnabled public String name;
+        @AuraEnabled public String recordUrl;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static String getBatchReport(String jobId) {
+        if (String.isBlank(jobId)) return null;
+        try {
+            // Find the file created by the batch
+            String title = 'SeedingReport_' + jobId;
+            List<ContentVersion> cvs = [SELECT VersionData FROM ContentVersion WHERE Title = :title AND IsLatest = true LIMIT 1];
+            if (!cvs.isEmpty()) {
+                return cvs[0].VersionData.toString();
+            }
+        } catch (Exception e) {
+            System.debug('Error retrieving batch report: ' + e.getMessage());
+        }
+        return null;
     }
 
     @AuraEnabled(cacheable=false)
@@ -872,11 +890,17 @@ public with sharing class ExternalOrgQueryController {
             }
             List<SObject> toInsert = new List<SObject>();
             List<String> oldIds = new List<String>();
+            List<String> inputNames = new List<String>();
+
             for (Map<String, Object> rec : records) {
                 if (rec == null) continue;
                 SObject sobj = t.newSObject();
                 String oldId = (rec.containsKey('Id') && rec.get('Id') != null) ? String.valueOf(rec.get('Id')) : null;
                 oldIds.add(oldId);
+                
+                String recName = (rec.containsKey('Name')) ? String.valueOf(rec.get('Name')) : oldId;
+                inputNames.add(recName);
+
                 for (String key : rec.keySet()) {
                     if (key == 'Id') continue; // never attempt to set Id on insert
                     try {
@@ -888,13 +912,18 @@ public with sharing class ExternalOrgQueryController {
                 toInsert.add(sobj);
             }
             Database.SaveResult[] results = Database.insert(toInsert, false);
+            String baseUrl = URL.getOrgDomainUrl().toExternalForm();
+
             for (Integer i = 0; i < results.size(); i++) {
                 InsertMapping m = new InsertMapping();
                 m.oldId = i < oldIds.size() ? oldIds[i] : null;
+                m.name = i < inputNames.size() ? inputNames[i] : null;
+                
                 Database.SaveResult sr = results[i];
                 if (sr.isSuccess()) {
                     m.success = true;
                     m.newId = (String) sr.getId();
+                    m.recordUrl = baseUrl + '/' + m.newId;
                 } else {
                     m.success = false;
                     if (sr.getErrors() != null && sr.getErrors().size() > 0) {
@@ -930,19 +959,21 @@ public with sharing class ExternalOrgQueryController {
             }
             List<SObject> toUpdate = new List<SObject>();
             List<String> targetIds = new List<String>();
+            List<String> inputNames = new List<String>();
+
             for (Map<String, Object> rec : records) {
                 if (rec == null) continue;
                 SObject sobj = t.newSObject();
                 String targetId = (rec.containsKey('Id') && rec.get('Id') != null) ? String.valueOf(rec.get('Id')) : null;
                 if (String.isBlank(targetId)) {
-                    // Skip records without Id for update
                     continue; 
                 }
                 targetIds.add(targetId);
+                String recName = (rec.containsKey('Name')) ? String.valueOf(rec.get('Name')) : targetId;
+                inputNames.add(recName);
                 
                 for (String key : rec.keySet()) {
                     try {
-                        // For update, we usually want to set Id plus other fields
                         sobj.put(key, rec.get(key));
                     } catch (Exception e) {
                         // Ignore
@@ -956,13 +987,18 @@ public with sharing class ExternalOrgQueryController {
             }
 
             Database.SaveResult[] results = Database.update(toUpdate, false);
+            String baseUrl = URL.getOrgDomainUrl().toExternalForm();
+
             for (Integer i = 0; i < results.size(); i++) {
                 InsertMapping m = new InsertMapping();
-                m.oldId = i < targetIds.size() ? targetIds[i] : null; // "oldId" here represents the ID being updated
+                m.oldId = i < targetIds.size() ? targetIds[i] : null; 
+                m.name = i < inputNames.size() ? inputNames[i] : null;
+
                 Database.SaveResult sr = results[i];
                 if (sr.isSuccess()) {
                     m.success = true;
                     m.newId = (String) sr.getId();
+                    m.recordUrl = baseUrl + '/' + m.newId;
                 } else {
                     m.success = false;
                     if (sr.getErrors() != null && sr.getErrors().size() > 0) {
@@ -1162,6 +1198,7 @@ public with sharing class ExternalOrgQueryController {
             // but explicit attributes {"type": "Account"} helps.
             List<Map<String, Object>> payloadRecords = new List<Map<String, Object>>();
             List<String> trackingIds = new List<String>(); // Track input IDs (if any) to map back to results
+            List<String> inputNames = new List<String>();
 
             for (Map<String, Object> r : records) {
                 Map<String, Object> rec = new Map<String, Object>(r);
@@ -1169,6 +1206,9 @@ public with sharing class ExternalOrgQueryController {
                 // For mapping results back:
                 String tid = r.containsKey('Id') ? String.valueOf(r.get('Id')) : null;
                 trackingIds.add(tid);
+                
+                String recName = (r.containsKey('Name')) ? String.valueOf(r.get('Name')) : tid;
+                inputNames.add(recName);
 
                 if (method == 'POST' && rec.containsKey('Id')) {
                     rec.remove('Id');
@@ -1201,10 +1241,12 @@ public with sharing class ExternalOrgQueryController {
                     Map<String, Object> result = (Map<String, Object>) results[i];
                     InsertMapping m = new InsertMapping();
                     m.oldId = (i < trackingIds.size()) ? trackingIds[i] : null;
+                    m.name = (i < inputNames.size()) ? inputNames[i] : null;
                     Boolean success = (Boolean) result.get('success');
                     m.success = success;
                     if (success == true) {
                         m.newId = (String) result.get('id');
+                        m.recordUrl = instanceUrl + '/' + m.newId;
                     } else {
                         List<Object> errors = (List<Object>) result.get('errors');
                         if (errors != null && !errors.isEmpty()) {
