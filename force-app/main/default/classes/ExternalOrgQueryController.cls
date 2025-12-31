@@ -925,14 +925,19 @@ public with sharing class ExternalOrgQueryController {
         if (String.isBlank(jobId)) return null;
         try {
             // Find the file created by the batch
-            String title = 'SeedingReport_' + jobId;
-            System.debug('Searching for ContentVersion with Title: ' + title);
-            List<ContentVersion> cvs = [SELECT VersionData FROM ContentVersion WHERE Title = :title AND IsLatest = true LIMIT 1];
+            // Use 15-char ID prefix to handle both 15 and 18 char formats
+            String queryId = jobId;
+            if (jobId.length() > 15) {
+                queryId = jobId.substring(0, 15);
+            }
+            String titlePrefix = 'SeedingReport_' + queryId;
+            System.debug('Searching for ContentVersion with Title starting with: ' + titlePrefix);
+            List<ContentVersion> cvs = [SELECT VersionData FROM ContentVersion WHERE Title LIKE :titlePrefix + '%' AND IsLatest = true ORDER BY CreatedDate DESC LIMIT 1];
             if (!cvs.isEmpty()) {
                 System.debug('Report found. Size: ' + cvs[0].VersionData.size());
                 return cvs[0].VersionData.toString();
             } else {
-                System.debug('Report NOT found for Title: ' + title);
+                System.debug('Report NOT found for Title starting with: ' + titlePrefix);
             }
         } catch (Exception e) {
             System.debug('Error retrieving batch report: ' + e.getMessage());
