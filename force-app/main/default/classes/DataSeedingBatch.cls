@@ -183,18 +183,21 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
 
     public void finish(Database.BatchableContext bc) {
         System.debug('Data Seeding Batch Completed.');
+        System.debug('Total logs generated: ' + (this.logs != null ? this.logs.size() : 0));
         
         try {
             // Save logs to a ContentVersion file for retrieval by UI
             ContentVersion cv = new ContentVersion();
             cv.Title = 'SeedingReport_' + bc.getJobId();
             cv.PathOnClient = 'SeedingReport.json';
-            cv.VersionData = Blob.valueOf(JSON.serialize(this.logs));
+            String jsonBody = JSON.serialize(this.logs);
+            System.debug('Report JSON length: ' + jsonBody.length());
+            cv.VersionData = Blob.valueOf(jsonBody);
             cv.IsMajorVersion = true;
             insert cv;
-            System.debug('Saved execution report: ' + cv.Id);
+            System.debug('Saved execution report: ' + cv.Id + ' with Title: ' + cv.Title);
         } catch (Exception e) {
-            System.debug('Failed to save batch report: ' + e.getMessage());
+            System.debug('Failed to save batch report: ' + e.getMessage() + '\n' + e.getStackTraceString());
         }
     }
 }

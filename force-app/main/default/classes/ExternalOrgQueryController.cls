@@ -860,13 +860,18 @@ public with sharing class ExternalOrgQueryController {
 
     @AuraEnabled(cacheable=false)
     public static String getBatchReport(String jobId) {
+        System.debug('getBatchReport called for Job ID: ' + jobId);
         if (String.isBlank(jobId)) return null;
         try {
             // Find the file created by the batch
             String title = 'SeedingReport_' + jobId;
+            System.debug('Searching for ContentVersion with Title: ' + title);
             List<ContentVersion> cvs = [SELECT VersionData FROM ContentVersion WHERE Title = :title AND IsLatest = true LIMIT 1];
             if (!cvs.isEmpty()) {
+                System.debug('Report found. Size: ' + cvs[0].VersionData.size());
                 return cvs[0].VersionData.toString();
+            } else {
+                System.debug('Report NOT found for Title: ' + title);
             }
         } catch (Exception e) {
             System.debug('Error retrieving batch report: ' + e.getMessage());

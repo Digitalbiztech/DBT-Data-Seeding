@@ -498,23 +498,50 @@ export default class ExternalOrgQuery extends LightningElement {
                         if (job.Status === 'Completed') {
                             this.successReportLines.push(`Batch Completed successfully. Processed ${job.JobItemsProcessed} items.`);
                             
-                            // Fetch detailed report
-                            try {
-                                const reportJson = await getBatchReport({ jobId: this.batchJobId });
-                                    
-                                if (reportJson) {
+                            // Fetch detailed report with retries
+                            let reportJson = null;
+                            let attempts = 0;
+                            console.log('Starting report fetch loop for Job:', this.batchJobId);
+                            while (!reportJson && attempts < 5) {
+                                try {
+                                    console.log(`Attempt ${attempts + 1} to fetch report...`);
+                                    reportJson = await getBatchReport({ jobId: this.batchJobId });
+                                    console.log(`Attempt ${attempts + 1} result length:`, reportJson ? reportJson.length : 'null');
+                                } catch (err) {
+                                    console.error('Failed to load batch report attempt ' + attempts, err);
+                                }
+                                if (!reportJson) {
+                                    attempts++;
+                                    console.log('Report not found, waiting 1s...');
+                                    // Wait 1s before retry
+                                    // eslint-disable-next-line @lwc/lwc/no-async-operation
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                }
+                            }
+                                
+                            if (reportJson) {
+                                try {
+                                    console.log('Parsing report JSON...');
                                     const rows = JSON.parse(reportJson);
+                                    console.log('Parsed rows count:', rows ? rows.length : 0);
                                     this.batchReportRows = rows;
                                     
                                     // Separate rows into success and error lists
                                     this.successRows = rows.filter(r => r.status === 'Success');
                                     this.errorRows = rows.filter(r => r.status !== 'Success');
+
+                                    console.log('Success rows:', this.successRows.length);
+                                    console.log('Error rows:', this.errorRows.length);
     
                                     this.importStatus.successCount = this.successRows.length;
                                     this.importStatus.errorCount = this.errorRows.length;
+                                } catch (parseErr) {
+                                    console.error('Error parsing batch report', parseErr);
+                                    this.errorReportLines.push('Error parsing batch report.');
                                 }
-                            } catch (err) {
-                                console.error('Failed to load batch report', err);
+                            } else {
+                                console.warn('Batch report not found after retries.');
+                                this.errorReportLines.push('Unable to retrieve batch report details (file not found).');
                             }
     
                         } else {
