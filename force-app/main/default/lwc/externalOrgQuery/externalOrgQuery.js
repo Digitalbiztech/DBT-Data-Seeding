@@ -17,6 +17,22 @@ import startDataSeedingBatch from '@salesforce/apex/ExternalOrgQueryController.s
 import getBatchJobStatus from '@salesforce/apex/ExternalOrgQueryController.getBatchJobStatus';
 import getBatchReport from '@salesforce/apex/ExternalOrgQueryController.getBatchReport';
 
+const STANDARD_OBJECT_NAMES = new Set([
+    'Account', 'Contact', 'Lead', 'Opportunity', 'Case', 'Campaign', 'Product2',
+    'Pricebook2', 'PricebookEntry', 'Quote', 'Contract', 'Task', 'Event',
+    'Profile', 'Role', 'PermissionSet', 'Group', 'Queue', 'Territory',
+    'Asset', 'Solution', 'Idea', 'Vote', 'Attachment', 'Document', 'Folder',
+    'ContentDocument', 'ContentVersion', 'ContentWorkspace', 'FeedItem',
+    'FeedComment', 'CollaborationGroup', 'CollaborationGroupMember',
+    'WorkOrder', 'WorkOrderLineItem', 'ServiceAppointment', 'ServiceResource',
+    'OperatingHours', 'ServiceTerritory', 'Location', 'MaintenancePlan',
+    'MaintenanceAsset', 'ReturnOrder', 'ReturnOrderLineItem', 'Shipment',
+    'ShipmentItem', 'ProductItem', 'InventoryItem', 'InventoryAdjustment',
+    'InventoryAdjustmentItem', 'InventoryTransfer', 'InventoryTransferItem',
+    'InventoryCount', 'InventoryCountItem', 'InventoryCountAdjustment',
+    'InventoryCountAdjustmentItem', 'InventoryCountAdjustmentLine'
+]);
+
 export default class ExternalOrgQuery extends LightningElement {
     // UI state for external org connection and query execution
     // Source org (kept as existing fields for compatibility)
@@ -137,54 +153,76 @@ export default class ExternalOrgQuery extends LightningElement {
             }));
         }
     
-            @track objectFilter = '';
-            @track isSearchFocused = false;
-        
-            get filteredObjectOptions() {
-                const term = (this.objectFilter || '').toLowerCase();
-                let opts = this.objectOptions;
-                if (term) {
-                    opts = opts.filter(o => (o.label && o.label.toLowerCase().includes(term)) || (o.value && o.value.toLowerCase().includes(term)));
-                }
-                // Sort alphabetically
-                return opts.sort((a, b) => a.label.localeCompare(b.label));
-            }
+                @track objectFilter = '';
+                @track isSearchFocused = false;
+                @track showMoreConfigs = false;
             
-            handleObjectFilterChange = (event) => { 
-                this.objectFilter = event.target.value || ''; 
-                // If user clears input, clear selection too? Maybe not, but let's keep it simple.
-                // If they type, we assume they are searching for a new object.
-                if (this.selectedObject && this.objectFilter !== this.selectedObject) {
-                     // Optional: clear selected object if they change the text? 
-                     // For now, let's just let them search.
+                get filteredObjectOptions() {
+                    const term = (this.objectFilter || '').toLowerCase();
+                    let opts = this.objectOptions;
+                    if (term) {
+                        opts = opts.filter(o => (o.label && o.label.toLowerCase().includes(term)) || (o.value && o.value.toLowerCase().includes(term)));
+                    }
+                    // Sort alphabetically
+                    return opts.sort((a, b) => a.label.localeCompare(b.label));
                 }
-            };
-        
-            handleObjectInputFocus = () => {
-                this.isSearchFocused = true;
-            };
-        
-            handleObjectInputBlur = () => {
-                // Delay hiding to allow click event to register
-                // eslint-disable-next-line @lwc/lwc/no-async-operation
-                setTimeout(() => {
+                
+                handleObjectFilterChange = (event) => { 
+                    this.objectFilter = event.target.value || ''; 
+                };
+            
+                handleObjectInputFocus = () => {
+                    this.isSearchFocused = true;
+                };
+            
+                    handleObjectInputBlur = () => {
+            
+                        // Delay hiding to allow click event to register
+            
+                        // eslint-disable-next-line @lwc/lwc/no-async-operation
+            
+                        setTimeout(() => {
+            
+                            this.isSearchFocused = false;
+            
+                        }, 200);
+            
+                    };
+            
+                
+            
+                    handleDropdownMouseDown = (event) => {
+            
+                        // Prevent focus from leaving the input when clicking inside the dropdown (e.g. on the scrollbar)
+            
+                        event.preventDefault();
+            
+                    };
+            
+                
+            
+                    handleObjectSelect = (event) => {
+            
+                
+                    const selectedVal = event.currentTarget.dataset.value;
+                    this.selectedObject = selectedVal;
+                    this.objectFilter = selectedVal; // Update input to show selected value
+                    this.dependencyTree = undefined;
                     this.isSearchFocused = false;
-                }, 200);
-            };
-        
-            handleObjectSelect = (event) => {
-                const selectedVal = event.currentTarget.dataset.value;
-                this.selectedObject = selectedVal;
-                this.objectFilter = selectedVal; // Update input to show selected value
-                this.dependencyTree = undefined;
-                this.isSearchFocused = false;
-            };
-        
-            get showSearchResults() {
-                return this.isSearchFocused && this.filteredObjectOptions.length > 0;
-            }
+                };
             
-        get selectedObjectEmpty() {
+                get showSearchResults() {
+                    return this.isSearchFocused && this.filteredObjectOptions.length > 0;
+                }
+            
+                handleToggleMoreConfigs = () => {
+                    this.showMoreConfigs = !this.showMoreConfigs;
+                };
+            
+                get moreConfigsLabel() {
+                    return this.showMoreConfigs ? '- Less' : '+ More';
+                }
+                    get selectedObjectEmpty() {
             return !this.selectedObject;
         }
     
@@ -195,31 +233,13 @@ export default class ExternalOrgQuery extends LightningElement {
             }));
         }
     
-        get standardObjects() {
-            // Common standard Salesforce objects
-            const standardObjects = [
-                'Account', 'Contact', 'Lead', 'Opportunity', 'Case', 'Campaign', 'Product2',
-                'Pricebook2', 'PricebookEntry', 'Quote', 'Contract', 'Task', 'Event',
-                'Profile', 'Role', 'PermissionSet', 'Group', 'Queue', 'Territory',
-                'Asset', 'Solution', 'Idea', 'Vote', 'Attachment', 'Document', 'Folder',
-                'ContentDocument', 'ContentVersion', 'ContentWorkspace', 'FeedItem',
-                'FeedComment', 'CollaborationGroup', 'CollaborationGroupMember',
-                'WorkOrder', 'WorkOrderLineItem', 'ServiceAppointment', 'ServiceResource',
-                'OperatingHours', 'ServiceTerritory', 'Location', 'MaintenancePlan',
-                'MaintenanceAsset', 'ReturnOrder', 'ReturnOrderLineItem', 'Shipment',
-                'ShipmentItem', 'ProductItem', 'InventoryItem', 'InventoryAdjustment',
-                'InventoryAdjustmentItem', 'InventoryTransfer', 'InventoryTransferItem',
-                'InventoryCount', 'InventoryCountItem', 'InventoryCountAdjustment',
-                'InventoryCountAdjustmentItem', 'InventoryCountAdjustmentLine'
-            ];
-            
-            return this.availableObjects.filter(obj => standardObjects.includes(obj));
-        }
-    
-        get customObjects() {
-            return this.availableObjects.filter(obj => !this.standardObjects.includes(obj));
-        }
-    
+            get standardObjects() {
+                return this.availableObjects.filter(obj => STANDARD_OBJECT_NAMES.has(obj));
+            }
+        
+            get customObjects() {
+                return this.availableObjects.filter(obj => !STANDARD_OBJECT_NAMES.has(obj));
+            }    
         // Simple getter methods for template
         handleUsernameChange = (event) => { this.username = event.target.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); console.log('Username updated'); };
         handlePasswordChange = (event) => { this.password = event.target.value; this.testMessage = undefined; this.error = undefined; this.clearSourceSession(); this.resetObjectSelection(); console.log('Password updated'); };
@@ -412,6 +432,9 @@ export default class ExternalOrgQuery extends LightningElement {
             if (!t) return 0;
             const pct = Math.floor((Math.min(p, t) / t) * 100);
             return isNaN(pct) ? 0 : pct;
+        }
+        get importProgressStyle() {
+            return `width: ${this.importProgressPercentage}%`;
         }
         get hasImportResults() {
             const s = (this.importStatus && this.importStatus.successCount) || 0;
