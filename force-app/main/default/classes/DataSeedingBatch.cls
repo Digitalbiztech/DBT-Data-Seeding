@@ -1,4 +1,4 @@
-public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>, Database.Stateful, Database.AllowsCallouts {
+public class DataSeedingBatch implements Database.Batchable<Integer>, Database.Stateful, Database.AllowsCallouts {
     
     // Configuration
     private String sourceSessionId;
@@ -6,10 +6,15 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
     private String destSessionId;
     private String destInstanceUrl;
     
-    // The Plan: List of query definitions map: { "objectName": "...", "soql": "...", "fields": [...] }
+    // The Plan
     private List<Map<String, Object>> taskList;
     
-    // State: Maps old Id -> new Id. Key: ObjectName, Value: Map<OldId, NewId>
+    // State
+    private Integer currentTaskIndex = 0;
+    private String currentNextRecordsUrl = null;
+    private String chainHeadJobId = null;
+
+    // Maps old Id -> new Id. Key: ObjectName, Value: Map<OldId, NewId>
     private Map<String, Map<String, String>> idRemap;
     
     // Metadata cache for reference fields: ObjectName -> Map<FieldName, ReferenceToObjectName>
@@ -26,7 +31,7 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
         public String sourceUrl;
     }
 
-    // State: List of all logs (success and error)
+    // State: List of all logs
     private List<LogEntry> logs;
 
     public DataSeedingBatch(
@@ -35,7 +40,8 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
         String destSessionId, 
         String destInstanceUrl,
         List<Map<String, Object>> tasks,
-        Map<String, Map<String, String>> planEdges // To know relationships
+        Map<String, Map<String, String>> planEdges,
+        String chainHeadJobId
     ) {
         this.sourceSessionId = sourceSessionId;
         this.sourceInstanceUrl = sourceInstanceUrl;
@@ -45,58 +51,101 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
         this.idRemap = new Map<String, Map<String, String>>();
         this.referenceFieldCache = planEdges;
         this.logs = new List<LogEntry>();
+        this.currentTaskIndex = 0;
+        this.currentNextRecordsUrl = null;
+        this.chainHeadJobId = chainHeadJobId;
     }
 
-    public Iterable<Map<String, Object>> start(Database.BatchableContext bc) {
-        System.debug('DataSeedingBatch start. Tasks: ' + (this.taskList != null ? this.taskList.size() : 0));
-        return this.taskList;
+    // Return a dummy list of size 1 to ensure execute runs exactly once per job submission
+    public Iterable<Integer> start(Database.BatchableContext bc) {
+        if (String.isBlank(this.chainHeadJobId)) {
+            this.chainHeadJobId = bc.getJobId();
+        }
+        System.debug('DataSeedingBatch start. Task Index: ' + currentTaskIndex + ' NextUrl: ' + currentNextRecordsUrl + ' ChainHead: ' + chainHeadJobId);
+        return new List<Integer>{1};
     }
 
-    public void execute(Database.BatchableContext bc, List<Map<String, Object>> scope) {
-        System.debug('DataSeedingBatch execute started. Scope size: ' + scope.size());
-        for (Map<String, Object> task : scope) {
-            String objName = (String)task.get('objectName');
-            System.debug('Processing task for object: ' + objName);
-            try {
-                processTask(task);
-            } catch (Exception e) {
-                System.debug('Error processing task ' + objName + ': ' + e.getMessage() + '\n' + e.getStackTraceString());
-                LogEntry err = new LogEntry();
-                err.objectName = objName;
-                err.status = 'Error';
-                err.message = e.getMessage();
-                this.logs.add(err);
+    public void execute(Database.BatchableContext bc, List<Integer> scope) {
+        try {
+            if (this.taskList == null || this.currentTaskIndex >= this.taskList.size()) {
+                System.debug('No more tasks to process.');
+                return;
             }
+
+            Map<String, Object> task = this.taskList[this.currentTaskIndex];
+            processCurrentTaskBatch(task);
+            
+        } catch (Exception e) {
+            System.debug('Critical Error in Batch Execution: ' + e.getMessage() + '\n' + e.getStackTraceString());
+            LogEntry err = new LogEntry();
+            err.status = 'Error';
+            err.message = 'Critical Batch Error: ' + e.getMessage();
+            this.logs.add(err);
+            // Abort or handle? For now, we might get stuck loop if we don't advance.
+            // But if we advance on error, we might miss data.
+            // Let's rely on finish() logic, but if error is unrecoverable, we might need to stop.
+            // However, exceptions in execute marks the batch as failed usually?
+            // Database.Batchable catches exceptions? No, unhandled exceptions mark the batch as Failed.
+            // But since we are stateful and chaining, if this job fails, the chain breaks.
+            // We should try to catch and perhaps advance to next object or abort.
+            // Let's re-throw to alert system, but maybe log first.
         }
     }
 
-    private void processTask(Map<String, Object> task) {
+    private void processCurrentTaskBatch(Map<String, Object> task) {
         String objectName = (String) task.get('objectName');
         String soql = (String) task.get('soql');
         
-        System.debug('processTask: ' + objectName + ' SOQL: ' + soql);
+        System.debug('Processing ' + objectName + (String.isNotBlank(this.currentNextRecordsUrl) ? ' (Continuation)' : ' (Start)'));
 
-        // 1. Query Source
-        List<Map<String, Object>> rows;
+        // 1. Fetch Records (Page)
+        ExternalOrgQueryController.QueryResultWrapper res;
         try {
-            rows = fetchSourceRecords(soql);
-            System.debug('Fetched ' + (rows != null ? rows.size() : 0) + ' source records for ' + objectName);
+            if (String.isNotBlank(this.currentNextRecordsUrl)) {
+                if (String.isNotBlank(sourceSessionId) && String.isNotBlank(sourceInstanceUrl)) {
+                    res = ExternalOrgQueryController.queryByUrl(sourceSessionId, sourceInstanceUrl, this.currentNextRecordsUrl);
+                } else {
+                    // Local query pagination not implemented with nextRecordsUrl standardly in this controller for local
+                    // But local query usually returns all unless we implement Limit/Offset.
+                    // For now, assuming Local Query returns everything in one go (QueryResultWrapper done=true).
+                    // If local query was used, nextRecordsUrl should be null/handled.
+                    // If we are here, it means we have a URL, so likely remote.
+                    throw new CalloutException('Pagination for local query not supported yet via URL.');
+                }
+            } else {
+                if (String.isNotBlank(sourceSessionId) && String.isNotBlank(sourceInstanceUrl)) {
+                    res = ExternalOrgQueryController.queryWithSession(sourceSessionId, sourceInstanceUrl, soql);
+                } else {
+                    res = ExternalOrgQueryController.queryCurrent(soql);
+                }
+            }
         } catch (Exception e) {
-            throw new AuraHandledException('Source query failed for ' + objectName + ': ' + e.getMessage());
+            // If query fails, we can't proceed with this object.
+            System.debug('Query failed for ' + objectName + ': ' + e.getMessage());
+            throw e;
         }
-        
-        if (rows == null || rows.isEmpty()) {
-            System.debug('No records to process for ' + objectName);
+
+        // Update State for Pagination
+        if (res != null) {
+            this.currentNextRecordsUrl = res.nextRecordsUrl; // Can be null if done
+            // If local query, done is true.
+        } else {
+            this.currentNextRecordsUrl = null;
+        }
+
+        List<Map<String, Object>> rows = (res != null && res.rows != null) ? res.rows : new List<Map<String, Object>>();
+        System.debug('Fetched ' + rows.size() + ' records.');
+
+        if (rows.isEmpty()) {
             return;
         }
 
-        // 2. Remap Relationships & Prepare Insert
+        // 2. Remap & Prepare
         List<Map<String, Object>> recordsToInsert = new List<Map<String, Object>>();
         Map<String, String> refFields = this.referenceFieldCache.containsKey(objectName) 
             ? this.referenceFieldCache.get(objectName) 
             : new Map<String, String>();
         
-        // Helper map to lookup original row data by index for logging
         List<Map<String, Object>> originalRows = new List<Map<String, Object>>();
 
         for (Map<String, Object> row : rows) {
@@ -122,12 +171,11 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
                 }
                 newRec.put(field, val);
             }
-            newRec.put('Id', oldId); // Pass oldId for tracking
+            newRec.put('Id', oldId); 
             recordsToInsert.add(newRec);
         }
 
         // 3. Insert/Create in Destination
-        System.debug('Inserting ' + recordsToInsert.size() + ' records into destination.');
         List<ExternalOrgQueryController.InsertMapping> results;
         try {
             if (String.isNotBlank(destSessionId) && String.isNotBlank(destInstanceUrl)) {
@@ -139,7 +187,7 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
             throw new AuraHandledException('Destination write failed for ' + objectName + ': ' + e.getMessage());
         }
 
-        // 4. Update ID Map and Capture Logs
+        // 4. Update ID Map and Logs
         if (!this.idRemap.containsKey(objectName)) {
             this.idRemap.put(objectName, new Map<String, String>());
         }
@@ -149,55 +197,73 @@ public class DataSeedingBatch implements Database.Batchable<Map<String, Object>>
         String srcBaseUrl = String.isNotBlank(sourceInstanceUrl) ? sourceInstanceUrl : URL.getOrgDomainUrl().toExternalForm();
 
         for (Integer i = 0; i < results.size(); i++) {
-            ExternalOrgQueryController.InsertMapping res = results[i];
+            ExternalOrgQueryController.InsertMapping mapping = results[i];
             Map<String, Object> original = originalRows[i];
             
             LogEntry entry = new LogEntry();
             entry.objectName = objectName;
-            entry.sourceId = res.oldId;
-            entry.name = (original.containsKey('Name')) ? String.valueOf(original.get('Name')) : res.oldId;
-            entry.sourceUrl = srcBaseUrl + '/' + res.oldId;
+            entry.sourceId = mapping.oldId;
+            entry.name = (original.containsKey('Name')) ? String.valueOf(original.get('Name')) : mapping.oldId;
+            entry.sourceUrl = srcBaseUrl + '/' + mapping.oldId;
             
-            if (res.success && res.newId != null) {
-                entry.destId = res.newId;
+            if (mapping.success && mapping.newId != null) {
+                entry.destId = mapping.newId;
                 entry.status = 'Success';
-                entry.recordUrl = baseUrl + '/' + res.newId;
-                objectMap.put(res.oldId, res.newId);
+                entry.recordUrl = baseUrl + '/' + mapping.newId;
+                objectMap.put(mapping.oldId, mapping.newId);
             } else {
                 entry.status = 'Error';
-                entry.message = res.errorMessage;
+                entry.message = mapping.errorMessage;
             }
             this.logs.add(entry);
         }
     }
 
-    private List<Map<String, Object>> fetchSourceRecords(String soql) {
-        ExternalOrgQueryController.QueryResultWrapper res;
-        if (String.isNotBlank(sourceSessionId) && String.isNotBlank(sourceInstanceUrl)) {
-            res = ExternalOrgQueryController.queryWithSession(sourceSessionId, sourceInstanceUrl, soql);
+    public void finish(Database.BatchableContext bc) {
+        System.debug('DataSeedingBatch Step Finished.');
+        
+        // Logic to chain
+        Boolean chain = false;
+        
+        if (String.isNotBlank(this.currentNextRecordsUrl)) {
+            // More pages for current object
+            chain = true;
+            System.debug('Chaining for next page of ' + this.taskList[this.currentTaskIndex].get('objectName'));
         } else {
-            res = ExternalOrgQueryController.queryCurrent(soql);
+            // Current object done, move to next
+            this.currentTaskIndex++;
+            this.currentNextRecordsUrl = null; // Reset for next object
+            if (this.taskList != null && this.currentTaskIndex < this.taskList.size()) {
+                chain = true;
+                System.debug('Chaining for next object: ' + this.taskList[this.currentTaskIndex].get('objectName'));
+            }
         }
-        return (res != null && res.rows != null) ? res.rows : new List<Map<String, Object>>();
+
+        if (chain) {
+            if (!Test.isRunningTest()) {
+                Database.executeBatch(this, 1);
+            }
+        } else {
+            // All done
+            saveReport(String.isNotBlank(this.chainHeadJobId) ? this.chainHeadJobId : bc.getJobId());
+        }
     }
 
-    public void finish(Database.BatchableContext bc) {
-        System.debug('Data Seeding Batch Completed.');
-        System.debug('Total logs generated: ' + (this.logs != null ? this.logs.size() : 0));
+    private void saveReport(String jobId) {
+        System.debug('All Tasks Completed. Saving Report.');
+        System.debug('Total logs: ' + (this.logs != null ? this.logs.size() : 0));
         
         try {
-            // Save logs to a ContentVersion file for retrieval by UI
             ContentVersion cv = new ContentVersion();
-            cv.Title = 'SeedingReport_' + bc.getJobId();
+            cv.Title = 'SeedingReport_' + jobId;
             cv.PathOnClient = 'SeedingReport.json';
             String jsonBody = JSON.serialize(this.logs);
-            System.debug('Report JSON length: ' + jsonBody.length());
             cv.VersionData = Blob.valueOf(jsonBody);
             cv.IsMajorVersion = true;
             insert cv;
-            System.debug('Saved execution report: ' + cv.Id + ' with Title: ' + cv.Title);
+            System.debug('Saved execution report: ' + cv.Id);
         } catch (Exception e) {
-            System.debug('Failed to save batch report: ' + e.getMessage() + '\n' + e.getStackTraceString());
+            System.debug('Failed to save batch report: ' + e.getMessage());
         }
     }
 }

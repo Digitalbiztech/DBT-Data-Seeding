@@ -601,6 +601,67 @@ public with sharing class ExternalOrgQueryController {
         }
     }
 
+    @AuraEnabled(cacheable=false)
+    public static QueryResultWrapper queryByUrl(String sessionId, String instanceUrl, String url) {
+        System.debug('queryByUrl invoked. URL: ' + url);
+        try {
+            if (String.isBlank(sessionId) || String.isBlank(instanceUrl) || String.isBlank(url)) {
+                throw new CalloutException('SessionId, instanceUrl, and url are required.');
+            }
+
+            HttpRequest request = new HttpRequest();
+            request.setMethod('GET');
+            // The url typically comes as "/services/data/v62.0/query/..." (relative) or full.
+            // If relative, prepend instanceUrl.
+            String endpoint = url.startsWith('http') ? url : instanceUrl + url;
+            request.setEndpoint(endpoint);
+            request.setHeader('Authorization', 'Bearer ' + sessionId);
+            request.setHeader('Content-Type', 'application/json');
+
+            Http http = new Http();
+            HTTPResponse response = http.send(request);
+
+            if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+                throw new CalloutException('Query failed: ' + response.getStatus() + ' ' + response.getBody());
+            }
+
+            Map<String, Object> untyped = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
+            QueryResultWrapper resultWrapper = new QueryResultWrapper();
+            resultWrapper.totalSize = (Integer) untyped.get('totalSize');
+            resultWrapper.done = (Boolean) untyped.get('done');
+            resultWrapper.nextRecordsUrl = (String) untyped.get('nextRecordsUrl');
+
+            List<Object> rawRecords = (List<Object>) untyped.get('records');
+            List<Map<String, Object>> rows = new List<Map<String, Object>>();
+            List<String> columns = new List<String>();
+            if (rawRecords != null) {
+                Map<String, Boolean> seenColumns = new Map<String, Boolean>();
+                for (Integer i = 0; i < rawRecords.size(); i++) {
+                    Map<String, Object> rec = (Map<String, Object>) rawRecords[i];
+                    if (rec == null) continue;
+                    rec.remove('attributes');
+                    rows.add(rec);
+                    // Just take columns from first record for simplicity, or union them
+                    for (String k : rec.keySet()) {
+                        if (!seenColumns.containsKey(k)) {
+                            columns.add(k);
+                            seenColumns.put(k, true);
+                        }
+                    }
+                }
+            }
+
+            resultWrapper.columns = columns;
+            resultWrapper.rows = rows;
+            return resultWrapper;
+        } catch (Exception e) {
+             System.debug('queryByUrl Error: ' + e.getMessage());
+             AuraHandledException ahe = new AuraHandledException(e.getMessage());
+             ahe.setMessage(e.getMessage());
+             throw ahe;
+        }
+    }
+
     private static LoginResult login(String username, String password, String environment) {
         String loginHost = (environment == 'Sandbox') ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
         System.debug('Preparing SOAP login callout to host: ' + loginHost);
@@ -1175,7 +1236,7 @@ public with sharing class ExternalOrgQueryController {
         Map<String, Map<String, String>> planEdges
     ) {
         try {
-            DataSeedingBatch batch = new DataSeedingBatch(sourceSessionId, sourceInstanceUrl, destSessionId, destInstanceUrl, tasks, planEdges);
+            DataSeedingBatch batch = new DataSeedingBatch(sourceSessionId, sourceInstanceUrl, destSessionId, destInstanceUrl, tasks, planEdges, null);
             return Database.executeBatch(batch, 1);
         } catch (Exception e) {
              System.debug('startDataSeedingBatch Error: ' + e.getMessage());
@@ -1187,7 +1248,22 @@ public with sharing class ExternalOrgQueryController {
 
     @AuraEnabled
     public static AsyncApexJob getBatchJobStatus(String jobId) {
-        return [SELECT Id, Status, JobItemsProcessed, TotalJobItems, NumberOfErrors, ExtendedStatus FROM AsyncApexJob WHERE Id = :jobId];
+        AsyncApexJob job = [SELECT Id, Status, JobItemsProcessed, TotalJobItems, NumberOfErrors, ExtendedStatus, CreatedDate FROM AsyncApexJob WHERE Id = :jobId];
+        
+        if (job.Status == 'Completed') {
+            // Check for chained job
+            List<AsyncApexJob> chained = [SELECT Id, Status, JobItemsProcessed, TotalJobItems, NumberOfErrors, ExtendedStatus 
+                                          FROM AsyncApexJob 
+                                          WHERE ApexClass.Name = 'DataSeedingBatch' 
+                                          AND CreatedDate >= :job.CreatedDate 
+                                          AND Id != :jobId 
+                                          AND Status IN ('Queued','Processing','Preparing','Holding') 
+                                          ORDER BY CreatedDate DESC LIMIT 1];
+            if (!chained.isEmpty()) {
+                return chained[0];
+            }
+        }
+        return job;
     }
 
     private static List<InsertMapping> executeRemoteComposite(String sessionId, String instanceUrl, String objectName, List<Map<String, Object>> records, String method) {
