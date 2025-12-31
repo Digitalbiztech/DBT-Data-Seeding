@@ -86,3 +86,37 @@ pre {
     white-space: pre-wrap;      /* wrap long lines */
     word-break: break-word;     /* break long tokens like IDs if necessary */
 }
+
+/* Autocomplete Dropdown Styles */
+.search-container {
+    position: relative;
+}
+
+.search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background-color: white;
+    border: 1px solid #dddbda;
+    border-radius: 0.25rem;
+    box-shadow: 0 2px 4px 0 rgba(0,0,0,0.16);
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 0.25rem;
+}
+
+.search-result-item {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f3f2f2;
+}
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+.search-result-item:hover {
+    background-color: #f3f2f2;
+}

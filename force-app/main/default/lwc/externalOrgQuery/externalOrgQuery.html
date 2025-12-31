@@ -102,16 +102,27 @@
         <!-- Object Selection Section -->
         <template if:true={showObjectPicker}>
             <div class="slds-p-horizontal_medium slds-p-bottom_small">
-                <lightning-input type="search" label="Search Objects" value={objectFilter} onchange={handleObjectFilterChange} placeholder="Type to filter objects"></lightning-input>
-                <lightning-combobox
-                    class="slds-m-top_x-small"
-                    name="objectPicker"
-                    label="Select Object"
-                    value={selectedObject}
-                    placeholder="Choose an object"
-                    options={filteredObjectOptions}
-                    onchange={handleObjectChange}
-                ></lightning-combobox>
+                <div class="search-container">
+                    <lightning-input 
+                        type="search" 
+                        label="Search Objects" 
+                        value={objectFilter} 
+                        onchange={handleObjectFilterChange} 
+                        onfocus={handleObjectInputFocus}
+                        onblur={handleObjectInputBlur}
+                        placeholder="Type to search objects..."
+                        autocomplete="off">
+                    </lightning-input>
+                    <template if:true={showSearchResults}>
+                        <div class="search-results">
+                            <template for:each={filteredObjectOptions} for:item="obj">
+                                <div key={obj.value} class="search-result-item" data-value={obj.value} onmousedown={handleObjectSelect}>
+                                    {obj.label}
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
             </div>
             
             <!-- Dependency Tree Configuration -->

@@ -137,15 +137,53 @@ export default class ExternalOrgQuery extends LightningElement {
             }));
         }
     
-        @track objectFilter = '';
-        get filteredObjectOptions() {
-            const term = (this.objectFilter || '').toLowerCase();
-            const opts = this.objectOptions;
-            if (!term) return opts;
-            return opts.filter(o => (o.label && o.label.toLowerCase().includes(term)) || (o.value && o.value.toLowerCase().includes(term)));
-        }
-        handleObjectFilterChange = (event) => { this.objectFilter = event.target.value || ''; };
-    
+            @track objectFilter = '';
+            @track isSearchFocused = false;
+        
+            get filteredObjectOptions() {
+                const term = (this.objectFilter || '').toLowerCase();
+                let opts = this.objectOptions;
+                if (term) {
+                    opts = opts.filter(o => (o.label && o.label.toLowerCase().includes(term)) || (o.value && o.value.toLowerCase().includes(term)));
+                }
+                // Sort alphabetically
+                return opts.sort((a, b) => a.label.localeCompare(b.label));
+            }
+            
+            handleObjectFilterChange = (event) => { 
+                this.objectFilter = event.target.value || ''; 
+                // If user clears input, clear selection too? Maybe not, but let's keep it simple.
+                // If they type, we assume they are searching for a new object.
+                if (this.selectedObject && this.objectFilter !== this.selectedObject) {
+                     // Optional: clear selected object if they change the text? 
+                     // For now, let's just let them search.
+                }
+            };
+        
+            handleObjectInputFocus = () => {
+                this.isSearchFocused = true;
+            };
+        
+            handleObjectInputBlur = () => {
+                // Delay hiding to allow click event to register
+                // eslint-disable-next-line @lwc/lwc/no-async-operation
+                setTimeout(() => {
+                    this.isSearchFocused = false;
+                }, 200);
+            };
+        
+            handleObjectSelect = (event) => {
+                const selectedVal = event.currentTarget.dataset.value;
+                this.selectedObject = selectedVal;
+                this.objectFilter = selectedVal; // Update input to show selected value
+                this.dependencyTree = undefined;
+                this.isSearchFocused = false;
+            };
+        
+            get showSearchResults() {
+                return this.isSearchFocused && this.filteredObjectOptions.length > 0;
+            }
+            
         get selectedObjectEmpty() {
             return !this.selectedObject;
         }
