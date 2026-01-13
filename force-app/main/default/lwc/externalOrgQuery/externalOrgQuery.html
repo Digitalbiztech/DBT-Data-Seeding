@@ -314,7 +314,7 @@
                                 
                                 <!-- Success Rows Table -->
                                 <template if:true={hasSuccessRows}>
-                                    <div class="slds-box slds-theme_success slds-m-bottom_small">
+                                    <div class="slds-box slds-theme_success slds-m-bottom_small record-text-black">
                                         <div class="slds-text-heading_small slds-m-bottom_x-small">Success Results</div>
                                         <table class="slds-table slds-table_cell-buffer slds-table_bordered">
                                             <thead>
@@ -355,7 +355,7 @@
 
                                 <!-- Error Rows Table -->
                                 <template if:true={hasErrorRows}>
-                                    <div class="slds-box slds-theme_error slds-m-bottom_small" style="width: fit-content;">
+                                    <div class="slds-box slds-theme_error slds-m-bottom_small record-text-black" style="width: fit-content;">
                                         <div class="slds-text-heading_small slds-m-bottom_x-small">Error Results</div>
                                         <table class="slds-table slds-table_cell-buffer slds-table_bordered">
                                             <thead>
@@ -508,7 +508,7 @@
                                                 </div>
                                             </div>
                                             <template if:true={currentReport.successes.length}>
-                                                <div class="slds-box slds-theme_success slds-m-bottom_small" style="max-height: 200px; overflow-y:auto;">
+                                                <div class="slds-box slds-theme_success slds-m-bottom_small record-text-black" style="max-height: 200px; overflow-y:auto;">
                                                     <div class="slds-text-title_bold slds-m-bottom_x-small">Successes</div>
                                                     <table class="slds-table slds-table_cell-buffer slds-table_bordered">
                                                         <thead>
@@ -537,7 +537,7 @@
                                                 </div>
                                             </template>
                                             <template if:true={currentReport.errors.length}>
-                                                <div class="slds-box slds-theme_error slds-m-bottom_small" style="max-height: 200px; overflow-y:auto; width: fit-content;">
+                                                <div class="slds-box slds-theme_error slds-m-bottom_small record-text-black" style="max-height: 200px; overflow-y:auto; width: fit-content;">
                                                     <div class="slds-text-title_bold">Errors</div>
                                                     <template for:each={currentReport.errors} for:item="e">
                                                         <div key={e.oldId} class="slds-text-body_small">

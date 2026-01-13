@@ -120,3 +120,7 @@ pre {
 .search-result-item:hover {
     background-color: #f3f2f2;
 }
+
+.record-text-black {
+    color: black !important;
+}

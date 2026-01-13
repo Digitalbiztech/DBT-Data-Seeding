@@ -6,7 +6,7 @@
 - [] Check for History, Email, Phone, etc. objects.
 - [x] Make visual improvements.
 - [x] Fix logic bugs.
-- [x] For very large numbers of records, implement a solution to store the data.
+- [x] For very large numbers of records, implement a solution to store the data. quable then batchable
 - [x] Generate a dependency tree of the selected object and its parent objects.
 - [x] Add a function to find matching records in the destination org.
 - [] Implement Field Mapping UI to handle schema differences.
@@ -16,4 +16,4 @@
 - [] Implement Progress Resumption for interrupted jobs.
 - [] Store ID mappings in a Custom Object for massive datasets.
 - [] Create a Seeding Error Log object for detailed failure tracking.
-
+- [] file for log data
