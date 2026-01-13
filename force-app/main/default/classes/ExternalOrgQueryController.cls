@@ -218,8 +218,8 @@ public with sharing class ExternalOrgQueryController {
             }
 
             // Set defaults if not provided
-            if (maxDepth == null || maxDepth <= 0) {
-                maxDepth = 3;
+            if (maxDepth != null && maxDepth < 0) {
+                maxDepth = 0;
             }
             if (excludedObjects == null) {
                 excludedObjects = new List<String>();
@@ -248,7 +248,10 @@ public with sharing class ExternalOrgQueryController {
         Set<String> allToDescribe = new Set<String>();
 
         // BFS to collect all objects that need description
-        for (Integer depth = 0; depth <= maxDepth; depth++) {
+        Integer depth = 0;
+        while (!currentLevel.isEmpty()) {
+            if (maxDepth != null && depth > maxDepth) break;
+
             Set<String> nextLevel = new Set<String>();
             Set<String> neededDescriptions = new Set<String>();
 
@@ -276,6 +279,7 @@ public with sharing class ExternalOrgQueryController {
             
             if (nextLevel.isEmpty()) break;
             currentLevel = nextLevel;
+            depth++;
         }
     }
 
@@ -288,8 +292,13 @@ public with sharing class ExternalOrgQueryController {
                 String fieldType = (String) field.get('type');
                 List<Object> referenceTo = (List<Object>) field.get('referenceTo');
                 Boolean createable = (Boolean) field.get('createable');
+                Boolean nillable = (Boolean) field.get('nillable');
+                Boolean defaultedOnCreate = (Boolean) field.get('defaultedOnCreate');
                 
                 if (fieldType == 'reference' && referenceTo != null && createable == true) {
+                    String fname = (String) field.get('name');
+                    if (fname == 'CreatedById' || fname == 'LastModifiedById') continue;
+
                     for (Object ref : referenceTo) {
                         String parentName = (String) ref;
                         if (!excludedObjects.contains(parentName)) {
@@ -369,7 +378,7 @@ public with sharing class ExternalOrgQueryController {
         }
         
         // Check depth limit
-        if (currentDepth >= maxDepth) {
+        if (maxDepth != null && currentDepth >= maxDepth) {
             return null;
         }
         
@@ -407,6 +416,7 @@ public with sharing class ExternalOrgQueryController {
                     // Check if this is a lookup or master-detail relationship
                     if (fieldType == 'reference' && String.isNotBlank(relationshipName) && referenceTo != null && !referenceTo.isEmpty() && createable != null && createable) {
                         String fieldName = (String) field.get('name');
+                        if (fieldName == 'CreatedById' || fieldName == 'LastModifiedById') continue;
                         
                         // Handle polymorphic fields by iterating over all referenced objects
                         for (Object ref : referenceTo) {
@@ -818,7 +828,7 @@ public with sharing class ExternalOrgQueryController {
             if (String.isBlank(objectName)) {
                 throw new CalloutException('objectName is required.');
             }
-            if (maxDepth == null || maxDepth < 0) maxDepth = 0;
+            if (maxDepth != null && maxDepth < 0) maxDepth = 0;
             if (excludedObjects == null) excludedObjects = new List<String>();
             Set<String> visited = new Set<String>();
             Set<String> excluded = new Set<String>(excludedObjects);
@@ -845,9 +855,11 @@ public with sharing class ExternalOrgQueryController {
             Schema.DescribeSObjectResult d = t.getDescribe();
 
             // Only add parents if within depth
-            if (currentDepth < maxDepth) {
+            if (maxDepth == null || currentDepth < maxDepth) {
                 for (Schema.SObjectField f : d.fields.getMap().values()) {
                     Schema.DescribeFieldResult fd = f.getDescribe();
+                    if (fd.getName() == 'CreatedById' || fd.getName() == 'LastModifiedById') continue;
+
                     if (fd.getType() == Schema.DisplayType.Reference && String.isNotBlank(fd.getRelationshipName())) {
                         List<Schema.SObjectType> rTo = fd.getReferenceTo();
                         if (rTo != null && !rTo.isEmpty() && fd.isCreateable() && !fd.isDefaultedOnCreate()) {
@@ -856,6 +868,7 @@ public with sharing class ExternalOrgQueryController {
                                 DependencyNode parentNode = new DependencyNode(parentName, fd.getName());
                                 parentNode.relationshipType = 'Lookup';
                                 parentNode.isRequired = (!fd.isNillable()) && (!fd.isDefaultedOnCreate());
+
                                 DependencyNode parentTree = buildDependencyTreeCurrent(parentName, visited, maxDepth, excluded, currentDepth + 1);
                                 if (parentTree != null) {
                                     parentNode.parents = parentTree.parents;

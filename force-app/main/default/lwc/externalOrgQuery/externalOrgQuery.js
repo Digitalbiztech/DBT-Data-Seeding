@@ -57,7 +57,7 @@ export default class ExternalOrgQuery extends LightningElement {
     @track selectedObject;
     @track dependencyTree;
     @track showObjectPicker = false;
-    @track maxDepth = 3;
+    @track maxDepth;
     @track excludedObjects = [];
     @track planRoot;
     @track planReady = false;
@@ -251,13 +251,16 @@ export default class ExternalOrgQuery extends LightningElement {
         handleDestUsernameChange = (event) => { this.destUsername = event.target.value; this.destTestMessage = undefined; };
         handleDestPasswordChange = (event) => { this.destPassword = event.target.value; this.destTestMessage = undefined; };
         handleDestEnvironmentChange = (event) => { this.destEnvironment = event.detail.value; this.destTestMessage = undefined; };
-        handleDepthChange = (event) => {
-            const raw = parseInt(event.target.value, 10);
-            const safe = Number.isFinite(raw) && raw >= 0 ? raw : 0;
-            this.maxDepth = safe;
-            this.dependencyTree = undefined;
-        };
-        // New picklist handlers to centralize YES/NO and keep Source/Destination synchronized
+            handleDepthChange = (event) => {
+                const val = event.target.value;
+                if (val === '' || val === null || val === undefined) {
+                    this.maxDepth = undefined;
+                } else {
+                    const raw = parseInt(val, 10);
+                    this.maxDepth = Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+                }
+                this.dependencyTree = undefined;
+            };        // New picklist handlers to centralize YES/NO and keep Source/Destination synchronized
         handleSourceCurrentPick = (event) => {
             const val = (event && event.detail && event.detail.value) || 'no';
             this.sourceUseCurrent = val;
@@ -1965,7 +1968,7 @@ export default class ExternalOrgQuery extends LightningElement {
         this.dependencyTree = undefined;
         this.sessionId = undefined;
         this.instanceUrl = undefined;
-        this.maxDepth = 3;
+        this.maxDepth = undefined;
         this.excludedObjects = [];
         this.planRoot = undefined;
         this.planEdges = new Map();
