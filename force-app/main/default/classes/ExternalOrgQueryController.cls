@@ -250,8 +250,8 @@ public with sharing class ExternalOrgQueryController {
         // BFS to collect all objects that need description
         Integer depth = 0;
         while (!currentLevel.isEmpty()) {
-            if (maxDepth != null && depth > maxDepth) break;
-
+            // Removed hard break on maxDepth because we might need to go deeper for required fields
+            
             Set<String> nextLevel = new Set<String>();
             Set<String> neededDescriptions = new Set<String>();
 
@@ -262,7 +262,7 @@ public with sharing class ExternalOrgQueryController {
                     neededDescriptions.add(obj);
                 } else {
                     // If already cached (e.g. from previous run), we still need to parse it to find next level
-                    collectParents(describeCache.get(obj), nextLevel, excludedObjects);
+                    collectParents(describeCache.get(obj), nextLevel, excludedObjects, depth, maxDepth);
                 }
             }
 
@@ -273,7 +273,7 @@ public with sharing class ExternalOrgQueryController {
                 // After describing, parse them to find the next level of parents
                 for (String obj : neededDescriptions) {
                     Map<String, Object> description = describeCache.get(obj);
-                    collectParents(description, nextLevel, excludedObjects);
+                    collectParents(description, nextLevel, excludedObjects, depth, maxDepth);
                 }
             }
             
@@ -283,7 +283,7 @@ public with sharing class ExternalOrgQueryController {
         }
     }
 
-    private static void collectParents(Map<String, Object> description, Set<String> nextLevel, Set<String> excludedObjects) {
+    private static void collectParents(Map<String, Object> description, Set<String> nextLevel, Set<String> excludedObjects, Integer currentDepth, Integer maxDepth) {
         if (description == null) return;
         List<Object> fields = (List<Object>) description.get('fields');
         if (fields != null) {
@@ -299,10 +299,27 @@ public with sharing class ExternalOrgQueryController {
                     String fname = (String) field.get('name');
                     if (fname == 'CreatedById' || fname == 'LastModifiedById') continue;
 
-                    for (Object ref : referenceTo) {
-                        String parentName = (String) ref;
-                        if (!excludedObjects.contains(parentName)) {
-                            nextLevel.add(parentName);
+                    Boolean isRequired = (nillable == false) && (defaultedOnCreate != true);
+                    Boolean include = false;
+                    
+                    if (maxDepth == null) {
+                        include = true;
+                    } else {
+                        // If currentDepth is strictly less than maxDepth, we can always add the next level (which will be at currentDepth + 1 <= maxDepth)
+                        // If currentDepth is >= maxDepth, we only add if required.
+                        if (currentDepth < maxDepth) {
+                            include = true;
+                        } else {
+                            if (isRequired) include = true;
+                        }
+                    }
+
+                    if (include) {
+                        for (Object ref : referenceTo) {
+                            String parentName = (String) ref;
+                            if (!excludedObjects.contains(parentName)) {
+                                nextLevel.add(parentName);
+                            }
                         }
                     }
                 }
@@ -429,6 +446,19 @@ public with sharing class ExternalOrgQueryController {
                             parentNode.relationshipType = 'Lookup';
                             // Required if non-nillable and not defaulted on create
                             parentNode.isRequired = (nillable == false) && (defaultedOnCreate != true);
+                            
+                            Boolean include = false;
+                            if (maxDepth == null) {
+                                include = true;
+                            } else {
+                                if (currentDepth < maxDepth) {
+                                    include = true;
+                                } else {
+                                    if (parentNode.isRequired) include = true;
+                                }
+                            }
+                            
+                            if (!include) continue;
                             
                             // Recursively get parent dependencies with depth control
                             // Since we prefetched, these calls won't make new HTTP requests
@@ -854,8 +884,11 @@ public with sharing class ExternalOrgQueryController {
             if (t == null) return root;
             Schema.DescribeSObjectResult d = t.getDescribe();
 
-            // Only add parents if within depth
-            if (maxDepth == null || currentDepth < maxDepth) {
+            // Only add parents if within depth or if required
+            // if (maxDepth == null || currentDepth < maxDepth) {  <-- Old Logic
+            
+            // New Hybrid Logic: Always iterate, filter inside loop
+            if (true) { 
                 for (Schema.SObjectField f : d.fields.getMap().values()) {
                     Schema.DescribeFieldResult fd = f.getDescribe();
                     if (fd.getName() == 'CreatedById' || fd.getName() == 'LastModifiedById') continue;
@@ -868,6 +901,19 @@ public with sharing class ExternalOrgQueryController {
                                 DependencyNode parentNode = new DependencyNode(parentName, fd.getName());
                                 parentNode.relationshipType = 'Lookup';
                                 parentNode.isRequired = (!fd.isNillable()) && (!fd.isDefaultedOnCreate());
+
+                                Boolean include = false;
+                                if (maxDepth == null) {
+                                    include = true;
+                                } else {
+                                    if (currentDepth < maxDepth) {
+                                        include = true;
+                                    } else {
+                                        if (parentNode.isRequired) include = true;
+                                    }
+                                }
+
+                                if (!include) continue;
 
                                 DependencyNode parentTree = buildDependencyTreeCurrent(parentName, visited, maxDepth, excluded, currentDepth + 1);
                                 if (parentTree != null) {

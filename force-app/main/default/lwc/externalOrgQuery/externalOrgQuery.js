@@ -65,6 +65,15 @@ export default class ExternalOrgQuery extends LightningElement {
     @track exportOrder = [];
     @track lastQueriedIdSnapshot;
     @track finalExportQueries = [];
+    @track exportStats;
+    @track effectiveDepth;
+
+    get displayDepth() {
+        if (this.maxDepth === undefined || this.maxDepth === null) {
+            return `Unlimited (Actual: ${this.effectiveDepth || 0})`;
+        }
+        return this.maxDepth;
+    }
     // Matching UI (wizard) flags (HTML expects these but logic not implemented here)
     @track showMatchingUI = false;
     @track showMatchingUIWizard = false;
@@ -632,6 +641,9 @@ export default class ExternalOrgQuery extends LightningElement {
         const clonedRoot = this.clonePlanNode(this.planRoot);
         if (this.toggleNodeCollapsed(clonedRoot, nodeId)) {
             this.planRoot = clonedRoot;
+            // Re-calculate effective depth as graph visibility/structure might conceptually change 
+            // (though strictly speaking, structure is same, we just update it to be safe or if we implement dynamic loading later)
+            // For now, static structure means depth doesn't change on toggle, but if we drop nodes it might.
         }
     };
 
@@ -651,6 +663,8 @@ export default class ExternalOrgQuery extends LightningElement {
         currentChildren.splice(toInfo.index, 0, moved);
         parent.children = currentChildren;
         this.planRoot = this.clonePlanNode(this.planRoot);
+        // Recalculate depth after structure change
+        this.effectiveDepth = this.calculateSelectedDepth(this.planRoot);
         if (parent.id === 'plan-root') {
             this.exportOrder = currentChildren.map(node => (node.type === 'edge' && node.targetObject) ? node.targetObject : (node.objectName || node.label));
             console.log(JSON.stringify({ type: 'PLAN_REORDER', order: this.exportOrder }, null, 2));
@@ -717,6 +731,21 @@ export default class ExternalOrgQuery extends LightningElement {
         return false;
     }
 
+    calculateDepth(node, currentDepth = 0) {
+        if (!node) return currentDepth;
+        let max = currentDepth;
+        if (node.children && node.children.length > 0) {
+            for (const child of node.children) {
+                // If child is an edge, it increases depth for the target object
+                // If child is object, it represents that next level
+                const nextDepth = (child.type === 'edge') ? currentDepth + 1 : currentDepth;
+                const d = this.calculateDepth(child, nextDepth);
+                if (d > max) max = d;
+            }
+        }
+        return max;
+    }
+
     buildPlanState(dependencyTree) {
         if (!dependencyTree) {
             this.planRoot = undefined;
@@ -728,14 +757,18 @@ export default class ExternalOrgQuery extends LightningElement {
         const edgesByObject = this.collectPlanEdges(dependencyTree);
         const rootObject = dependencyTree.objectName;
         const order = this.computeExportOrder(edgesByObject, rootObject);
-        this.exportOrder = order;
-        this.planEdges = edgesByObject;
-        this.planRoot = this.buildPlanTree(rootObject, order, edgesByObject);
-        this.planReady = true;
-        this.lastQueriedIdSets = new Map();
-        this.lastQueriedIdSnapshot = undefined;
-    }
-
+                this.exportOrder = order;
+                this.planEdges = edgesByObject;
+                        this.planRoot = this.buildPlanTree(rootObject, order, edgesByObject);
+                        // Calculate effective depth from graph (initially all selected)
+                        const computedDepth = this.calculateSelectedDepth(this.planRoot);
+                        this.effectiveDepth = computedDepth;
+                        this.planReady = true;                    this.lastQueriedIdSets = new Map();
+            this.lastQueriedIdSnapshot = undefined;
+            this.exportStats = undefined;
+            this.effectiveDepth = undefined;
+            return;
+        }
     collectPlanEdges(root) {
         const edgesByObject = new Map();
         const visitedEdges = new Set();
@@ -1090,6 +1123,20 @@ export default class ExternalOrgQuery extends LightningElement {
             }
             this.lastQueriedIdSets = cloned;
             this.lastQueriedIdSnapshot = this.serializeIdSets(cloned);
+            
+            // Calculate Stats
+            let totalRecords = 0;
+            let objectCount = 0;
+            for (const idSet of cloned.values()) {
+                if (idSet && idSet.size > 0) {
+                    objectCount++;
+                    totalRecords += idSet.size;
+                }
+            }
+            this.exportStats = { objectCount, totalRecords };
+            // Recalculate depth just in case (though graph didn't change, confirms consistency)
+            this.effectiveDepth = this.calculateSelectedDepth(this.planRoot);
+            
             console.log(JSON.stringify({ type: 'ID_COLLECTION_RESULT', queriedIdSet: this.lastQueriedIdSnapshot }, null, 2));
         } catch (e) {
             const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Export failed');
@@ -1128,7 +1175,29 @@ export default class ExternalOrgQuery extends LightningElement {
             setDescendants(edgeNode.children[0], !!isSelected);
         }
         this.planRoot = root;
+        // Recalculate depth based on selected nodes only?
+        // Current calculateDepth traverses all children. If we want "selected depth", we need to update calculateDepth.
+        // For now, let's keep it as "Graph Depth". If user deselects, the graph structure still exists.
+        // But if requirement is "active export depth", we should update calculateDepth to check isSelected.
+        this.effectiveDepth = this.calculateSelectedDepth(this.planRoot);
     };
+
+    calculateSelectedDepth(node, currentDepth = 0) {
+        if (!node) return currentDepth;
+        // If node is not selected (and it's an edge/object that can be deselected), stop?
+        // Objects don't have isSelected, Edges do.
+        if (node.type === 'edge' && !node.isSelected) return currentDepth;
+
+        let max = currentDepth;
+        if (node.children && node.children.length > 0) {
+            for (const child of node.children) {
+                const nextDepth = (child.type === 'edge') ? currentDepth + 1 : currentDepth;
+                const d = this.calculateSelectedDepth(child, nextDepth);
+                if (d > max) max = d;
+            }
+        }
+        return max;
+    }
 
     // Matching wizard: getters
     get isMatchingStepSelect() { return this.showMatchingUIWizard && this.wizard.step === 'select'; }
@@ -1557,6 +1626,7 @@ export default class ExternalOrgQuery extends LightningElement {
         objectNode.lockedByAncestor = !isSelected;
         setDescendants(objectNode, !!isSelected);
         this.planRoot = root;
+        this.effectiveDepth = this.calculateSelectedDepth(this.planRoot);
     };
 
     collectSelectedEdgesFromPlan(root) {
@@ -1976,6 +2046,8 @@ export default class ExternalOrgQuery extends LightningElement {
         this.planReady = false;
         this.lastQueriedIdSets = new Map();
         this.lastQueriedIdSnapshot = undefined;
+        this.exportStats = undefined;
+        this.effectiveDepth = undefined;
     }
 
     clearSourceSession() {

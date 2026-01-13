@@ -206,8 +206,13 @@
                 <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small plan-header">
                     <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
                         <h3 class="slds-text-heading_small">
-                            Export Plan for <strong>{planRoot.objectName}</strong>
+                            Export Plan for <strong>{planRoot.objectName}</strong> <span class="slds-text-color_weak slds-m-left_small">(Depth: {displayDepth})</span>
                         </h3>
+                        <template if:true={exportStats}>
+                             <div class="slds-text-body_small slds-m-top_xx-small">
+                                Objects: <strong>{exportStats.objectCount}</strong> | Records to Fetch: <strong>{exportStats.totalRecords}</strong>
+                             </div>
+                        </template>
                     </div>
                     <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons">
                         <lightning-button
