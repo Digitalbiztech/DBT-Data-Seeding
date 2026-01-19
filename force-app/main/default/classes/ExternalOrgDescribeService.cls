@@ -473,40 +473,6 @@ public with sharing class ExternalOrgDescribeService {
           }
         }
       }
-
-      Integer childLimit = (maxDepth == null) ? 1 : maxDepth;
-      if (childRels != null && currentDepth < childLimit) {
-        for (Object crObj : childRels) {
-          Map<String, Object> cr = (Map<String, Object>) crObj;
-          String childSObject = (String) cr.get('childSObject');
-          String childField = (String) cr.get('field');
-          String relName = (String) cr.get('relationshipName');
-          if (String.isBlank(childSObject) || String.isBlank(childField))
-            continue;
-          if (excludedObjects.contains(childSObject))
-            continue;
-
-          if (
-            IGNORED_CHILD_OBJECTS.contains(childSObject) ||
-            childSObject.endsWith('__History') ||
-            childSObject.endsWith('__Share') ||
-            childSObject.endsWith('ChangeEvent') ||
-            childSObject.endsWith('Feed') ||
-            childSObject.endsWith('History') ||
-            childSObject.endsWith('Share')
-          ) {
-            continue;
-          }
-
-          DependencyNode childNode = new DependencyNode(
-            childSObject,
-            childField
-          );
-          childNode.relationshipName = relName;
-          childNode.relationshipType = 'Child';
-          rootNode.children.add(childNode);
-        }
-      }
     } catch (Exception e) {
       System.debug(
         'Error building dependency tree for ' +
@@ -798,40 +764,6 @@ public with sharing class ExternalOrgDescribeService {
               }
             }
           }
-        }
-      }
-
-      Integer childLimit = (maxDepth == null) ? 1 : maxDepth;
-      if (currentDepth < childLimit) {
-        for (Schema.ChildRelationship cr : d.getChildRelationships()) {
-          String childName = cr.getChildSObject() != null
-            ? cr.getChildSObject().getDescribe().getName()
-            : null;
-          String fieldName = cr.getField() != null
-            ? cr.getField().getDescribe().getName()
-            : null;
-          String relName = cr.getRelationshipName();
-          if (String.isBlank(childName) || String.isBlank(fieldName))
-            continue;
-          if (excluded.contains(childName.toLowerCase()))
-            continue;
-
-          if (
-            IGNORED_CHILD_OBJECTS.contains(childName) ||
-            childName.endsWith('__History') ||
-            childName.endsWith('__Share') ||
-            childName.endsWith('ChangeEvent') ||
-            childName.endsWith('Feed') ||
-            childName.endsWith('History') ||
-            childName.endsWith('Share')
-          ) {
-            continue;
-          }
-
-          DependencyNode childNode = new DependencyNode(childName, fieldName);
-          childNode.relationshipName = relName;
-          childNode.relationshipType = 'Child';
-          root.children.add(childNode);
         }
       }
     } catch (Exception e) {
