@@ -38,7 +38,7 @@ public with sharing class ExternalOrgQueryController {
   // Cache for describe results within a single transaction to reduce callouts
   private static Map<String, Map<String, Object>> describeCache = new Map<String, Map<String, Object>>();
 
-  private static final Set<String> IGNORED_CHILD_OBJECTS = new Set<String>{
+  private static final Set<String> IGNORED_OBJECTS = new Set<String>{
     'ActivityHistory',
     'OpenActivity',
     'AttachedContentDocument',
@@ -63,7 +63,37 @@ public with sharing class ExternalOrgQueryController {
     'AIInsightValue',
     'AIRecordInsight',
     'FlowOrchestrationWorkItem',
-    'UserDefinedLabelAssignment'
+    'UserDefinedLabelAssignment',
+    'AdvAcctForecastFactAdj',
+    'AdvAcctForecastSetUse',
+    'AssessmentTaskContentDocument',
+    'Attachment',
+    'CollaborationGroupRecord',
+    'ContactRequest',
+    'ContentDistribution',
+    'ContentVersion',
+    'DocumentChecklistItem',
+    'DuplicateRecordItem',
+    'FlowExecutionErrorEvent',
+    'InventoryItemReservation',
+    'InventoryReservation',
+    'ProcessException',
+    'ProcessExceptionEvent',
+    'Visit',
+    'ApprovalSubmission',
+    'ApprovalWorkItem',
+    'EngagementTopic',
+    'FinanceBalanceSnapshot',
+    'FinanceTransaction',
+    'OutgoingEmail',
+    'RecordAlert',
+    'UserRole',
+    'Individual',
+    'Profile',
+    'Group',
+    'PermissionSet',
+    'Queue',
+    'Organization'
   };
 
   public class DependencyNode {
@@ -499,7 +529,10 @@ public with sharing class ExternalOrgQueryController {
           if (include) {
             for (Object ref : referenceTo) {
               String parentName = (String) ref;
-              if (!excludedObjects.contains(parentName.toLowerCase())) {
+              if (
+                !excludedObjects.contains(parentName.toLowerCase()) &&
+                !IGNORED_OBJECTS.contains(parentName)
+              ) {
                 nextLevel.add(parentName);
               }
             }
@@ -657,7 +690,10 @@ public with sharing class ExternalOrgQueryController {
             // Handle polymorphic fields by iterating over all referenced objects
             for (Object ref : referenceTo) {
               String parentObjectName = (String) ref;
-              if (excludedObjects.contains(parentObjectName.toLowerCase()))
+              if (
+                excludedObjects.contains(parentObjectName.toLowerCase()) ||
+                IGNORED_OBJECTS.contains(parentObjectName)
+              )
                 continue;
 
               System.debug(
@@ -717,42 +753,7 @@ public with sharing class ExternalOrgQueryController {
         }
       }
 
-      // Add child relationships (objects that reference this object)
-      // Prevent infinite child recursion. If maxDepth is unlimited (null), limit children to immediate level (1).
-      Integer childLimit = (maxDepth == null) ? 1 : maxDepth;
-      if (childRels != null && currentDepth < childLimit) {
-        for (Object crObj : childRels) {
-          Map<String, Object> cr = (Map<String, Object>) crObj;
-          String childSObject = (String) cr.get('childSObject');
-          String childField = (String) cr.get('field');
-          String relName = (String) cr.get('relationshipName');
-          if (String.isBlank(childSObject) || String.isBlank(childField))
-            continue;
-          if (excludedObjects.contains(childSObject))
-            continue;
-
-          // Filter noise
-          if (
-            IGNORED_CHILD_OBJECTS.contains(childSObject) ||
-            childSObject.endsWith('__History') ||
-            childSObject.endsWith('__Share') ||
-            childSObject.endsWith('ChangeEvent') ||
-            childSObject.endsWith('Feed') ||
-            childSObject.endsWith('History') ||
-            childSObject.endsWith('Share')
-          ) {
-            continue;
-          }
-
-          DependencyNode childNode = new DependencyNode(
-            childSObject,
-            childField
-          );
-          childNode.relationshipName = relName;
-          childNode.relationshipType = 'Child';
-          rootNode.children.add(childNode);
-        }
-      }
+      // Child relationship processing removed
     } catch (Exception e) {
       System.debug(
         'Error building dependency tree for ' +
@@ -1352,7 +1353,10 @@ public with sharing class ExternalOrgQueryController {
             ) {
               for (Schema.SObjectType refType : rTo) {
                 String parentName = refType.getDescribe().getName();
-                if (!excluded.contains(parentName.toLowerCase())) {
+                if (
+                  !excluded.contains(parentName.toLowerCase()) &&
+                  !IGNORED_OBJECTS.contains(parentName)
+                ) {
                   DependencyNode parentNode = new DependencyNode(
                     parentName,
                     fd.getName()
@@ -1396,42 +1400,7 @@ public with sharing class ExternalOrgQueryController {
         }
       }
 
-      // Always include immediate child relationships list (not recursing downwards here)
-      // Prevent infinite child recursion. If maxDepth is unlimited (null), limit children to immediate level (1).
-      Integer childLimit = (maxDepth == null) ? 1 : maxDepth;
-      if (currentDepth < childLimit) {
-        for (Schema.ChildRelationship cr : d.getChildRelationships()) {
-          String childName = cr.getChildSObject() != null
-            ? cr.getChildSObject().getDescribe().getName()
-            : null;
-          String fieldName = cr.getField() != null
-            ? cr.getField().getDescribe().getName()
-            : null;
-          String relName = cr.getRelationshipName();
-          if (String.isBlank(childName) || String.isBlank(fieldName))
-            continue;
-          if (excluded.contains(childName.toLowerCase()))
-            continue;
-
-          // Filter noise
-          if (
-            IGNORED_CHILD_OBJECTS.contains(childName) ||
-            childName.endsWith('__History') ||
-            childName.endsWith('__Share') ||
-            childName.endsWith('ChangeEvent') ||
-            childName.endsWith('Feed') ||
-            childName.endsWith('History') ||
-            childName.endsWith('Share')
-          ) {
-            continue;
-          }
-
-          DependencyNode childNode = new DependencyNode(childName, fieldName);
-          childNode.relationshipName = relName;
-          childNode.relationshipType = 'Child';
-          root.children.add(childNode);
-        }
-      }
+      // Child relationship processing removed
     } catch (Exception e) {
       System.debug(
         'Error building current-org dependency tree for ' +

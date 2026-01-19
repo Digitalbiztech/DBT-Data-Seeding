@@ -34,6 +34,8 @@ const STANDARD_OBJECT_NAMES = new Set([
   "Event",
   "Profile",
   "Role",
+  "UserRole",
+  "Individual",
   "PermissionSet",
   "Group",
   "Queue",
