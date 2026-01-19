@@ -1,178 +1,184 @@
-import { LightningElement, api } from 'lwc';
+import { LightningElement, api } from "lwc";
 
 export default class ExternalOrgQueryNode extends LightningElement {
-    @api node;
+  @api node;
 
-    get hasChildren() {
-        if (!this.node) return false;
-        if (this.isEdge) {
-            const childObject = this.node.children && this.node.children[0];
-            return !!(childObject && Array.isArray(childObject.children) && childObject.children.length > 0);
-        }
-        return Array.isArray(this.node.children) && this.node.children.length > 0;
+  get hasChildren() {
+    if (!this.node) return false;
+    if (this.isEdge) {
+      const childObject = this.node.children && this.node.children[0];
+      return !!(
+        childObject &&
+        Array.isArray(childObject.children) &&
+        childObject.children.length > 0
+      );
     }
+    return Array.isArray(this.node.children) && this.node.children.length > 0;
+  }
 
-    get isEdge() {
-        return this.node && this.node.type === 'edge';
+  get isEdge() {
+    return this.node && this.node.type === "edge";
+  }
+
+  get isObject() {
+    return this.node && this.node.type === "object";
+  }
+
+  get isDraggable() {
+    return this.node && !!this.node.draggable;
+  }
+
+  get showHeader() {
+    // Show header for edges always; for object nodes, suppress when flagged by parent edge
+    if (!this.node) return true;
+    if (this.isEdge) return true;
+    if (this.isObject && this.node.suppressHeader) return false;
+    return true;
+  }
+
+  get isRoot() {
+    return this.node && this.node.id === "plan-root";
+  }
+
+  get showObjectCheckbox() {
+    return this.isObject && !this.isRoot;
+  }
+
+  get containerClass() {
+    const classes = ["plan-node"];
+    if (this.hasChildren) {
+      classes.push("plan-node--parent");
+    } else {
+      classes.push("plan-node--leaf");
     }
-
-    get isObject() {
-        return this.node && this.node.type === 'object';
+    classes.push(this.isEdge ? "plan-node--edge" : "plan-node--object");
+    if (this.node && this.node.lockedByAncestor) {
+      classes.push("plan-node--locked");
     }
-
-    get isDraggable() {
-        return this.node && !!this.node.draggable;
+    if (this.isDraggable) {
+      classes.push("plan-node--draggable");
     }
+    return classes.join(" ");
+  }
 
-    get showHeader() {
-        // Show header for edges always; for object nodes, suppress when flagged by parent edge
-        if (!this.node) return true;
-        if (this.isEdge) return true;
-        if (this.isObject && this.node.suppressHeader) return false;
+  get toggleIcon() {
+    if (!this.hasChildren) {
+      return "utility:dash";
+    }
+    return this.node.isCollapsed
+      ? "utility:chevronright"
+      : "utility:chevrondown";
+  }
+
+  handleToggle = (event) => {
+    event.stopPropagation();
+    if (!this.hasChildren) {
+      return;
+    }
+    this.dispatchEvent(
+      new CustomEvent("plannodetoggle", {
+        detail: { nodeId: this.node.id },
+        bubbles: true,
+        composed: true
+      })
+    );
+  };
+
+  handleEdgeCheckboxChange = (event) => {
+    if (this.node && this.node.lockedByAncestor) {
+      // Prevent toggling when locked by an unchecked ancestor
+      event.preventDefault();
+      event.stopPropagation();
+      event.target.checked = !!this.node.isSelected;
+      return;
+    }
+    const checked = !!event.target.checked;
+    this.dispatchEvent(
+      new CustomEvent("planedgetoggle", {
+        detail: { nodeId: this.node.id, isSelected: checked },
+        bubbles: true,
+        composed: true
+      })
+    );
+  };
+
+  get objectChecked() {
+    // object checkbox reflects whether all descendant edges are selected
+    const allEdgesSelected = (node) => {
+      if (!node || !Array.isArray(node.children) || !node.children.length) {
         return true;
-    }
-
-    get isRoot() {
-        return this.node && this.node.id === 'plan-root';
-    }
-
-    get showObjectCheckbox() {
-        return this.isObject && !this.isRoot;
-    }
-
-    get containerClass() {
-        const classes = ['plan-node'];
-        if (this.hasChildren) {
-            classes.push('plan-node--parent');
+      }
+      for (const child of node.children) {
+        if (child.type === "edge") {
+          if (!child.isSelected) return false;
+          if (child.children && child.children[0]) {
+            if (!allEdgesSelected(child.children[0])) return false;
+          }
         } else {
-            classes.push('plan-node--leaf');
+          if (!allEdgesSelected(child)) return false;
         }
-        classes.push(this.isEdge ? 'plan-node--edge' : 'plan-node--object');
-        if (this.node && this.node.lockedByAncestor) {
-            classes.push('plan-node--locked');
-        }
-        if (this.isDraggable) {
-            classes.push('plan-node--draggable');
-        }
-        return classes.join(' ');
-    }
-
-    get toggleIcon() {
-        if (!this.hasChildren) {
-            return 'utility:dash';
-        }
-        return this.node.isCollapsed ? 'utility:chevronright' : 'utility:chevrondown';
-    }
-
-    handleToggle = (event) => {
-        event.stopPropagation();
-        if (!this.hasChildren) {
-            return;
-        }
-        this.dispatchEvent(
-            new CustomEvent('plannodetoggle', {
-                detail: { nodeId: this.node.id },
-                bubbles: true,
-                composed: true
-            })
-        );
+      }
+      return true;
     };
+    return allEdgesSelected(this.node);
+  }
 
-    handleEdgeCheckboxChange = (event) => {
-        if (this.node && this.node.lockedByAncestor) {
-            // Prevent toggling when locked by an unchecked ancestor
-            event.preventDefault();
-            event.stopPropagation();
-            event.target.checked = !!this.node.isSelected;
-            return;
-        }
-        const checked = !!event.target.checked;
-        this.dispatchEvent(
-            new CustomEvent('planedgetoggle', {
-                detail: { nodeId: this.node.id, isSelected: checked },
-                bubbles: true,
-                composed: true
-            })
-        );
-    };
+  get isDisabled() {
+    return !!(this.node && this.node.lockedByAncestor);
+  }
 
-    get objectChecked() {
-        // object checkbox reflects whether all descendant edges are selected
-        const allEdgesSelected = (node) => {
-            if (!node || !Array.isArray(node.children) || !node.children.length) {
-                return true;
-            }
-            for (const child of node.children) {
-                if (child.type === 'edge') {
-                    if (!child.isSelected) return false;
-                    if (child.children && child.children[0]) {
-                        if (!allEdgesSelected(child.children[0])) return false;
-                    }
-                } else {
-                    if (!allEdgesSelected(child)) return false;
-                }
-            }
-            return true;
-        };
-        return allEdgesSelected(this.node);
+  get edgeCheckboxClass() {
+    return `slds-m-right_x-small plan-checkbox ${this.isDisabled ? "plan-checkbox--locked" : ""}`.trim();
+  }
+
+  get objectCheckboxClass() {
+    return `slds-m-right_x-small plan-checkbox ${this.isDisabled ? "plan-checkbox--locked" : ""}`.trim();
+  }
+
+  handleObjectCheckboxChange = (event) => {
+    const checked = !!event.target.checked;
+    this.dispatchEvent(
+      new CustomEvent("planobjecttoggle", {
+        detail: { nodeId: this.node.id, isSelected: checked },
+        bubbles: true,
+        composed: true
+      })
+    );
+  };
+
+  handleDragStart = (event) => {
+    if (!this.isDraggable) {
+      event.preventDefault();
+      return;
     }
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", this.node.id);
+  };
 
-    get isDisabled() {
-        return !!(this.node && this.node.lockedByAncestor);
+  handleDragOver = (event) => {
+    if (!this.isDraggable) {
+      return;
     }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  };
 
-    get edgeCheckboxClass() {
-        return `slds-m-right_x-small plan-checkbox ${this.isDisabled ? 'plan-checkbox--locked' : ''}`.trim();
+  handleDrop = (event) => {
+    if (!this.isDraggable) {
+      return;
     }
-
-    get objectCheckboxClass() {
-        return `slds-m-right_x-small plan-checkbox ${this.isDisabled ? 'plan-checkbox--locked' : ''}`.trim();
+    event.preventDefault();
+    const sourceId = event.dataTransfer.getData("text/plain");
+    if (!sourceId || sourceId === this.node.id) {
+      return;
     }
-
-    handleObjectCheckboxChange = (event) => {
-        const checked = !!event.target.checked;
-        this.dispatchEvent(
-            new CustomEvent('planobjecttoggle', {
-                detail: { nodeId: this.node.id, isSelected: checked },
-                bubbles: true,
-                composed: true
-            })
-        );
-    };
-
-    handleDragStart = (event) => {
-        if (!this.isDraggable) {
-            event.preventDefault();
-            return;
-        }
-        event.stopPropagation();
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', this.node.id);
-    };
-
-    handleDragOver = (event) => {
-        if (!this.isDraggable) {
-            return;
-        }
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-    };
-
-    handleDrop = (event) => {
-        if (!this.isDraggable) {
-            return;
-        }
-        event.preventDefault();
-        const sourceId = event.dataTransfer.getData('text/plain');
-        if (!sourceId || sourceId === this.node.id) {
-            return;
-        }
-        this.dispatchEvent(
-            new CustomEvent('plannodedrop', {
-                detail: { sourceId, targetId: this.node.id },
-                bubbles: true,
-                composed: true
-            })
-        );
-    };
+    this.dispatchEvent(
+      new CustomEvent("plannodedrop", {
+        detail: { sourceId, targetId: this.node.id },
+        bubbles: true,
+        composed: true
+      })
+    );
+  };
 }

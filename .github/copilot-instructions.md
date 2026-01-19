@@ -5,6 +5,7 @@ This repository is a Salesforce DX project (SFDX) containing Apex classes, Light
 Note: For a detailed implementation log and complete feature breakdown, refer to `PLAN.md` in the `.github` directory. This file contains the chronological development history, algorithms, data structures, and comprehensive implementation details.
 
 Summary / Big picture
+
 - This is a Salesforce DX project whose source lives under `force-app/main/default` and is configured by `sfdx-project.json` (sourceApiVersion 62.0).
 - Major components:
   - Apex controllers: `force-app/main/default/classes/*.cls` (example: `ExternalOrgQueryController.cls`). These provide @AuraEnabled methods used by LWCs and perform HTTP callouts.
@@ -13,6 +14,7 @@ Summary / Big picture
   - Manifest(s): `manifest/Seed.xml` is a package manifest that includes Apex classes, LWC bundles, and remote site settings.
 
 Developer workflows & commands (concrete)
+
 - Install dependencies: run `npm install` in the repo root.
 - Unit tests (LWC): `npm test` (runs `sfdx-lwc-jest`). You can run `npm run test:unit:watch` for iterative testing.
 - Lint & format:
@@ -23,9 +25,10 @@ Developer workflows & commands (concrete)
   - Deploy source to an org: `sfdx force:source:deploy -p force-app -u <ORG_ALIAS>`
   - Push to a scratch org: `sfdx force:source:push -u <SCRATCH_ORG>`
   - Authenticate an org: `sfdx auth:web:login -a <ALIAS>`
-(Note: repo does not include CI scripts; prefer using SFDX CLI and `npm test` locally or in CI.)
+    (Note: repo does not include CI scripts; prefer using SFDX CLI and `npm test` locally or in CI.)
 
 Project-specific conventions & gotchas
+
 - Field handling: The component automatically handles OwnerId, Group, and other system-managed fields during export/import:
   - Uses `getCreateableFields` to get creatable fields from both source and destination orgs
   - Takes intersection of creatable fields to ensure fields can be set in destination
@@ -34,6 +37,7 @@ Project-specific conventions & gotchas
   - Export process: collects IDs iteratively along selected edges, then builds final SOQL with only creatable fields
 
 Key files to inspect when changing behavior
+
 - `force-app/main/default/classes/ExternalOrgQueryController.cls` — main Apex controller; handles login, query, describe, dependency-tree, and insert helpers.
 - `force-app/main/default/lwc/externalOrgQuery/externalOrgQuery.js` — large LWC that orchestrates UI, calls Apex, builds export/import plans; good example of client-side patterns used across the repo.
 - `force-app/main/default/remoteSiteSettings/*` — callout targets; ensure entries exist for any external endpoints used by Apex.
@@ -41,11 +45,13 @@ Key files to inspect when changing behavior
 - `package.json` — scripts for linting/testing/formatting; prefer these scripts in CI and local flows.
 
 Small engineering contract (short)
+
 - Inputs: LWC UI provides credentials and SOQL strings to Apex methods.
 - Outputs: Apex returns JSON-like maps/lists (see `QueryResultWrapper` and `ConnectionTestResult` in `ExternalOrgQueryController.cls`).
 - Error modes: callout failures (HTTP non-2xx), invalid input (blank username/password/soql), JSON parse errors. Apex surfaces these via exceptions/AuraHandledException.
 
 Edge cases and attention areas for PR reviewers / AI edits
+
 - Export engine behavior:
   - Supports depth 0 (root object only) and proceeds even when roots have no outgoing edges
   - Uses two-phase export: first collects IDs along selected edges, then builds final SOQL
@@ -54,6 +60,7 @@ Edge cases and attention areas for PR reviewers / AI edits
   - Maintains per-object old→new Id maps during import for reference field remapping
 
 If you modify or add functionality, include:
+
 - A unit test for any LWC UI logic (use `sfdx-lwc-jest`).
 - Formatting via `npm run prettier` and lint fixes so precommit hooks are satisfied.
 

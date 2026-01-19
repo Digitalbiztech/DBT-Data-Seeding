@@ -1,629 +1,1021 @@
 <template>
-    <lightning-card title="External Org SOQL Runner" icon-name="utility:database">
-        <div class="slds-p-around_medium">
-            <!-- Reverse button -->
-            <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small">
-                <div class="slds-col slds-size_1-of-1 slds-align_absolute-center">
-                    <lightning-button variant="neutral" label="Reverse" onclick={handleReverseOrgs}></lightning-button>
-                </div>
-            </div>
-
-            <!-- Split Source/Destination -->
-            <div class="slds-grid slds-wrap slds-gutters">
-                <!-- Source Org -->
-                <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                    <h3 class="slds-text-title_caps slds-m-bottom_small">Source Org</h3>
-                    <lightning-combobox
-                        name="sourceUseCurrent"
-                        label="Use Current Org ?"
-                        value={sourceUseCurrent}
-                        options={yesNoOptions}
-                        onchange={handleSourceCurrentPick}
-                    ></lightning-combobox>
-                    <template if:true={isSourceCurrentOrg}>
-                        <div class="slds-text-color_weak slds-text-body_small slds-m-top_xx-small">No login needed. Uses this org’s data.</div>
-                    </template>
-                    <div class={sourceSectionClass}>
-                        <lightning-input type="text" label="Username" value={username} onchange={handleUsernameChange} disabled={isSourceCurrentOrg}></lightning-input>
-                        <lightning-input class="slds-m-top_x-small" type="password" label="Password" value={password} onchange={handlePasswordChange} disabled={isSourceCurrentOrg}></lightning-input>
-                        <lightning-combobox
-                            class="slds-m-top_x-small"
-                            name="environment"
-                            label="Environment"
-                            value={environment}
-                            placeholder="Select Environment"
-                            options={environmentOptions}
-                            onchange={handleEnvironmentChange}
-                            disabled={isSourceCurrentOrg}
-                        ></lightning-combobox>
-                    </div>
-                    <div class="slds-m-top_small">
-                        <template if:false={isSourceCurrentOrg}>
-                            <lightning-button variant="neutral" label="Test Source Connection" onclick={handleTestConnection} if:true={canTestSource}></lightning-button>
-                        </template>
-                    </div>
-                    <template if:true={testMessage}>
-                        <div class="slds-m-top_x-small slds-text-color_success">{testMessage}</div>
-                    </template>
-                </div>
-
-                <!-- Destination Org -->
-                <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                    <h3 class="slds-text-title_caps slds-m-bottom_small">Destination Org</h3>
-                    <lightning-combobox
-                        name="destinationUseCurrent"
-                        label="Use Current Org ?"
-                        value={destUseCurrent}
-                        options={yesNoOptions}
-                        onchange={handleDestinationCurrentPick}
-                    ></lightning-combobox>
-                    <template if:true={isDestinationCurrentOrg}>
-                        <div class="slds-text-color_weak slds-text-body_small slds-m-top_xx-small">No login needed. Uses this org’s data.</div>
-                    </template>
-                    <div class={destinationSectionClass}>
-                        <lightning-input type="text" label="Username" value={destUsername} onchange={handleDestUsernameChange} disabled={isDestinationCurrentOrg}></lightning-input>
-                        <lightning-input class="slds-m-top_x-small" type="password" label="Password" value={destPassword} onchange={handleDestPasswordChange} disabled={isDestinationCurrentOrg}></lightning-input>
-                        <lightning-combobox
-                            class="slds-m-top_x-small"
-                            name="destEnvironment"
-                            label="Environment"
-                            value={destEnvironment}
-                            placeholder="Select Environment"
-                            options={environmentOptions}
-                            onchange={handleDestEnvironmentChange}
-                            disabled={isDestinationCurrentOrg}
-                        ></lightning-combobox>
-                    </div>
-                    <div class="slds-m-top_small">
-                        <template if:false={isDestinationCurrentOrg}>
-                            <lightning-button variant="neutral" label="Test Destination Connection" onclick={handleTestConnectionDestination} if:true={canTestDestination}></lightning-button>
-                        </template>
-                    </div>
-                    <template if:true={destTestMessage}>
-                        <div class="slds-m-top_x-small">{destTestMessage}</div>
-                    </template>
-                </div>
-            </div>
-
-            <!-- SOQL + Run Query appear only after Source connection -->
-            <template if:true={isSourceConnected}>
-                <div class="slds-m-top_large">
-                    <lightning-textarea label="SOQL" value={soql} onchange={handleSoqlChange} placeholder="SELECT Id, Name FROM Account LIMIT 10"></lightning-textarea>
-                    <div class="slds-m-top_small">
-                        <lightning-button variant="brand" label="Run Query" onclick={handleRunQuery} disabled={isRunDisabled}></lightning-button>
-                    </div>
-                </div>
-            </template>
+  <lightning-card title="External Org SOQL Runner" icon-name="utility:database">
+    <div class="slds-p-around_medium">
+      <!-- Reverse button -->
+      <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small">
+        <div class="slds-col slds-size_1-of-1 slds-align_absolute-center">
+          <lightning-button
+            variant="neutral"
+            label="Reverse"
+            onclick={handleReverseOrgs}
+          ></lightning-button>
         </div>
-        <template if:true={error}>
-            <div class="slds-p-horizontal_medium slds-text-color_error">{error}</div>
-        </template>
+      </div>
 
-        <!-- Object Selection Section -->
-        <template if:true={showObjectPicker}>
-            <div class="slds-p-horizontal_medium slds-p-bottom_small">
-                <div class="search-container">
-                    <lightning-input 
-                        type="search" 
-                        label="Search Objects" 
-                        value={objectFilter} 
-                        onchange={handleObjectFilterChange} 
-                        onfocus={handleObjectInputFocus}
-                        onblur={handleObjectInputBlur}
-                        placeholder="Type to search objects..."
-                        autocomplete="off">
-                    </lightning-input>
-                    <template if:true={showSearchResults}>
-                        <div class="search-results" onmousedown={handleDropdownMouseDown}>
-                            <template for:each={filteredObjectOptions} for:item="obj">
-                                <div key={obj.value} class="search-result-item" data-value={obj.value} onmousedown={handleObjectSelect}>
-                                    {obj.label}
-                                </div>
-                            </template>
-                        </div>
-                    </template>
-                </div>
+      <!-- Split Source/Destination -->
+      <div class="slds-grid slds-wrap slds-gutters">
+        <!-- Source Org -->
+        <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+          <h3 class="slds-text-title_caps slds-m-bottom_small">Source Org</h3>
+          <lightning-combobox
+            name="sourceUseCurrent"
+            label="Use Current Org ?"
+            value={sourceUseCurrent}
+            options={yesNoOptions}
+            onchange={handleSourceCurrentPick}
+          ></lightning-combobox>
+          <template if:true={isSourceCurrentOrg}>
+            <div
+              class="slds-text-color_weak slds-text-body_small slds-m-top_xx-small"
+            >
+              No login needed. Uses this org’s data.
             </div>
-            
-            <!-- Dependency Tree Configuration -->
-            <template if:false={selectedObjectEmpty}>
-                <div class="slds-p-horizontal_medium slds-p-bottom_small">
-                    <div class="slds-m-bottom_small">
-                        <lightning-button 
-                            variant="base" 
-                            label={moreConfigsLabel} 
-                            onclick={handleToggleMoreConfigs} 
-                            class="slds-m-top_x-small"
-                        ></lightning-button>
-                    </div>
-
-                    <template if:true={showMoreConfigs}>
-                        <div class="slds-box slds-theme_shade slds-m-bottom_small">
-                            <div class="slds-grid slds-wrap slds-gutters">
-                                <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
-                                    <lightning-input 
-                                        type="number" 
-                                        label="Max Depth" 
-                                        value={maxDepth}
-                                        min="0"
-                                        max="10"
-                                        placeholder="Unlimited (All)"
-                                        onchange={handleDepthChange}
-                                    ></lightning-input>
-                                </div>
-                                <div class="slds-col slds-size_1-of-1 slds-medium-size_2-of-3">
-                                    <lightning-dual-listbox
-                                        name="excludedObjects"
-                                        label="Excluded Objects (objects to skip in dependency tree)"
-                                        source-label="Available"
-                                        selected-label="Excluded"
-                                        options={excludedObjectOptions}
-                                        value={excludedObjects}
-                                        onchange={handleExcludedObjectsChange}
-                                    ></lightning-dual-listbox>
-                                </div>
-                            </div>
-                            
-                            <!-- Quick Filter Buttons -->
-                            <div class="slds-p-top_small">
-                                <div class="slds-text-body_small slds-m-bottom_x-small">Quick Filters:</div>
-                                <lightning-button-group>
-                                    <lightning-button 
-                                        variant="neutral" 
-                                        label="Exclude Standard Objects" 
-                                        onclick={handleSelectStandardObjects}
-                                    ></lightning-button>
-                                    <lightning-button 
-                                        variant="neutral" 
-                                        label="Exclude Custom Objects" 
-                                        onclick={handleSelectCustomObjects}
-                                    ></lightning-button>
-                                    <lightning-button 
-                                        variant="neutral" 
-                                        label="Clear Exclusions" 
-                                        onclick={handleClearExclusions}
-                                    ></lightning-button>
-                                </lightning-button-group>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-                
-                <div class="slds-p-horizontal_medium slds-p-bottom_small">
-                    <lightning-button 
-                        variant="brand" 
-                        label="Check Plan" 
-                        onclick={handleCheckPlan}
-                        disabled={selectedObjectEmpty}
-                    ></lightning-button>
-                </div>
+          </template>
+          <div class={sourceSectionClass}>
+            <lightning-input
+              type="text"
+              label="Username"
+              value={username}
+              onchange={handleUsernameChange}
+              disabled={isSourceCurrentOrg}
+            ></lightning-input>
+            <lightning-input
+              class="slds-m-top_x-small"
+              type="password"
+              label="Password"
+              value={password}
+              onchange={handlePasswordChange}
+              disabled={isSourceCurrentOrg}
+            ></lightning-input>
+            <lightning-combobox
+              class="slds-m-top_x-small"
+              name="environment"
+              label="Environment"
+              value={environment}
+              placeholder="Select Environment"
+              options={environmentOptions}
+              onchange={handleEnvironmentChange}
+              disabled={isSourceCurrentOrg}
+            ></lightning-combobox>
+          </div>
+          <div class="slds-m-top_small">
+            <template if:false={isSourceCurrentOrg}>
+              <lightning-button
+                variant="neutral"
+                label="Test Source Connection"
+                onclick={handleTestConnection}
+                if:true={canTestSource}
+              ></lightning-button>
             </template>
-        </template>
-
-        <!-- Export Plan Panel -->
-        <template if:true={hasPlan}>
-            <div class="slds-p-around_medium plan-section">
-                <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small plan-header">
-                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                        <h3 class="slds-text-heading_small">
-                            Export Plan for <strong>{planRoot.objectName}</strong> <span class="slds-text-color_weak slds-m-left_small">(Depth: {displayDepth})</span>
-                        </h3>
-                        <template if:true={exportStats}>
-                             <div class="slds-text-body_small slds-m-top_xx-small">
-                                Objects: <strong>{exportStats.objectCount}</strong> | Records to Fetch: <strong>{exportStats.totalRecords}</strong>
-                             </div>
-                        </template>
-                    </div>
-                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons">
-                        <lightning-button
-                            class="slds-m-right_small"
-                            variant="neutral"
-                            label="Expand All"
-                            onclick={handleExpandAll}
-                        ></lightning-button>
-                        <lightning-button
-                            class="slds-m-right_small"
-                            variant="neutral"
-                            label="Collapse All"
-                            onclick={handleCollapseAll}
-                        ></lightning-button>
-                    </div>
-                </div>
-                <div class="plan-tree-container">
-                    <c-external-org-query-node
-                        node={planRoot}
-                        onplannodetoggle={handlePlanNodeToggle}
-                        onplannodedrop={handlePlanNodeDrop}
-                        onplanedgetoggle={handlePlanEdgeToggle}
-                        onplanobjecttoggle={handlePlanObjectToggle}>
-                    </c-external-org-query-node>
-                </div>
-                <!-- Bottom controls: Limit + Export actions -->
-                <div class="slds-grid slds-wrap slds-gutters slds-m-top_small plan-controls">
-                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                        <lightning-input
-                            type="number"
-                            label="Bootstrap Limit"
-                            value={exportLimit}
-                            min="1"
-                            onchange={handleLimitChange}
-                        ></lightning-input>
-                    </div>
-                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons">
-                        <lightning-button
-                            class="slds-m-right_small"
-                            variant="brand"
-                            label="Export"
-                            onclick={handleExport}
-                            disabled={isExportDisabled}
-                        ></lightning-button>
-                        <lightning-button
-                            variant="brand-outline"
-                            label="Final Export"
-                            onclick={handleFinalExport}
-                            disabled={isFinalExportDisabled}
-                        ></lightning-button>
-                    </div>
-                </div>
-                <!-- Post-final-export actions -->
-                <template if:true={hasFinalQueries}>
-                    <div class="slds-grid slds-wrap slds-gutters slds-m-top_small plan-controls">
-                        <div class="slds-col slds-size_1-of-1 slds-align_absolute-center plan-buttons">
-                            <lightning-button
-                                class="slds-m-right_small"
-                                variant="neutral"
-                                label="Check & Import"
-                                onclick={handleOpenCheckImport}
-                            ></lightning-button>
-                            <lightning-button
-                                variant="brand"
-                                label="Import All"
-                                onclick={handleStartImport}
-                                disabled={isStartImportDisabled}
-                            ></lightning-button>
-                        </div>
-                    </div>
-
-                    <!-- Import Status Section -->
-                    <template if:true={importStatus.inProgress}>
-                        <div class="slds-m-top_medium slds-box slds-theme_shade">
-                            <div class="slds-text-heading_small">Import Progress</div>
-                            <div class="slds-progress-bar slds-progress-bar_circular slds-m-top_x-small" aria-valuemin="0" aria-valuemax="100" aria-valuenow={importProgressPercentage} role="progressbar">
-                                <span class="slds-progress-bar__value" style={importProgressStyle}>
-                                    <span class="slds-assistive-text">Progress: {importProgressPercentage}%</span>
-                                </span>
-                            </div>
-                            <div class="slds-text-body_small slds-m-top_xx-small">
-                                Currently importing: {importStatus.currentObject}
-                            </div>
-                            <div class="slds-text-body_small">
-                                Progress: {importStatus.processedObjects} of {importStatus.totalObjects} objects
-                            </div>
-                        </div>
-                    </template>
-                    
-                    <!-- Import Results -->
-                    <template if:true={hasImportResults}>
-                        <div class="slds-m-top_medium slds-box slds-theme_default">
-                            <div class="slds-text-heading_small slds-m-bottom_small">Import Results</div>
-                            <div class="slds-text-body_regular">
-                                <div class="slds-grid slds-gutters">
-                                    <div class="slds-col">
-                                        <span class="slds-text-color_success">Success: {importStatus.successCount}</span>
-                                    </div>
-                                    <div class="slds-col">
-                                        <span class="slds-text-color_error">Errors: {importStatus.errorCount}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="slds-m-top_small" style="max-height: 400px; overflow-y: auto;">
-                                
-                                <!-- Success Rows Table -->
-                                <template if:true={hasSuccessRows}>
-                                    <div class="slds-box slds-theme_success slds-m-bottom_small record-text-black">
-                                        <div class="slds-text-heading_small slds-m-bottom_x-small">Success Results</div>
-                                        <table class="slds-table slds-table_cell-buffer slds-table_bordered">
-                                            <thead>
-                                                <tr class="slds-line-height_reset">
-                                                    <th scope="col"><div class="slds-truncate">Object</div></th>
-                                                    <th scope="col"><div class="slds-truncate">Name</div></th>
-                                                    <th scope="col"><div class="slds-truncate">Source ID</div></th>
-                                                    <th scope="col"><div class="slds-truncate">Source Link</div></th>
-                                                    <th scope="col"><div class="slds-truncate">Dest. Link</div></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <template for:each={successRows} for:item="row">
-                                                    <tr key={row.sourceId}>
-                                                        <td><div class="slds-truncate">{row.objectName}</div></td>
-                                                        <td><div class="slds-truncate" title={row.name}>{row.name}</div></td>
-                                                        <td><div class="slds-truncate">{row.sourceId}</div></td>
-                                                        <td>
-                                                            <div class="slds-truncate">
-                                                                <template if:true={row.sourceUrl}>
-                                                                    <lightning-formatted-url value={row.sourceUrl} label="Source" target="_blank"></lightning-formatted-url>
-                                                                </template>
-                                                            </div>
-                                                        </td>
-                                                        <td>
-                                                            <div class="slds-truncate">
-                                                                <template if:true={row.recordUrl}>
-                                                                    <lightning-formatted-url value={row.recordUrl} label="Dest" target="_blank"></lightning-formatted-url>
-                                                                </template>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                </template>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </template>
-
-                                <!-- Error Rows Table -->
-                                <template if:true={hasErrorRows}>
-                                    <div class="slds-box slds-theme_error slds-m-bottom_small record-text-black" style="width: fit-content;">
-                                        <div class="slds-text-heading_small slds-m-bottom_x-small">Error Results</div>
-                                        <table class="slds-table slds-table_cell-buffer slds-table_bordered">
-                                            <thead>
-                                                <tr class="slds-line-height_reset">
-                                                    <th scope="col"><div class="slds-truncate">Object</div></th>
-                                                    <th scope="col"><div class="slds-truncate">Name</div></th>
-                                                    <th scope="col"><div class="slds-truncate">Source ID</div></th>
-                                                    <th scope="col"><div class="slds-truncate">Source Link</div></th>
-                                                    <th scope="col"><div class="slds-truncate">Error Detail</div></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <template for:each={errorRows} for:item="row">
-                                                    <tr key={row.sourceId}>
-                                                        <td><div class="slds-truncate">{row.objectName}</div></td>
-                                                        <td><div class="slds-truncate" title={row.name}>{row.name}</div></td>
-                                                        <td><div class="slds-truncate">{row.sourceId}</div></td>
-                                                        <td>
-                                                            <div class="slds-truncate">
-                                                                <template if:true={row.sourceUrl}>
-                                                                    <lightning-formatted-url value={row.sourceUrl} label="Source" target="_blank"></lightning-formatted-url>
-                                                                </template>
-                                                            </div>
-                                                        </td>
-                                                        <td><div class="slds-truncate" title={row.message}>{row.message}</div></td>
-                                                    </tr>
-                                                </template>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Matching UI (legacy) -->
-                    <template if:true={showMatchingUI}>
-                        <div class="slds-m-top_medium slds-box slds-theme_default">
-                            <div class="slds-text-heading_small slds-m-bottom_small">
-                                Check matching in: {currentMatchingObject.objectName}
-                            </div>
-                            <lightning-dual-listbox
-                                name="matchingFields"
-                                label="Fields to match on"
-                                source-label="Available"
-                                selected-label="Selected"
-                                options={matchingFieldsOptions}
-                                value={selectedMatchingFields}
-                                onchange={handleMatchingFieldChange}>
-                            </lightning-dual-listbox>
-                            <div class="slds-m-top_x-small">
-                                <lightning-button-group>
-                                    <lightning-button variant="neutral" label="Deselect All" onclick={handleMatchingDeselectAll}></lightning-button>
-                                    <lightning-button variant="neutral" label="Select All" onclick={handleMatchingSelectAll}></lightning-button>
-                                </lightning-button-group>
-                            </div>
-                            <div class="slds-m-top_small">
-                                <lightning-button
-                                    variant="brand"
-                                    label="Check"
-                                    onclick={handleRunMatchingCheck}
-                                    disabled={isLoading}>
-                                </lightning-button>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Check & Import Wizard Modal -->
-                    <template if:true={showMatchingUIWizard}>
-                        <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="checkImportHeading" class="slds-modal slds-fade-in-open">
-                            <div class="slds-modal__container">
-                                <header class="slds-modal__header">
-                                    <h2 id="checkImportHeading" class="slds-text-heading_medium">Check & Import</h2>
-                                </header>
-                                <div class="slds-modal__content slds-p-around_medium" id="modal-content-id-1">
-                                    <!-- Step 1: Field Selection (per object) -->
-                                    <template if:true={isMatchingStepSelect}>
-                                        <template if:true={currentWizardObject}>
-                                            <div class="slds-m-bottom_small slds-text-title_caps">Select matching fields &mdash; {currentWizardObject}</div>
-                                            
-                                            <template if:true={hasSchemaWarnings}>
-                                                <div class="slds-box slds-theme_warning slds-theme_alert-texture slds-m-bottom_small">
-                                                    <div class="slds-text-body_small">
-                                                        <strong>Schema Mismatch:</strong> The following fields exist in Source but <strong>NOT</strong> in Destination. They will be skipped during import:
-                                                    </div>
-                                                    <div class="slds-text-body_small slds-m-top_xx-small">
-                                                        <template for:each={currentSchemaWarnings} for:item="f">
-                                                            <span key={f} class="slds-badge slds-theme_warning slds-m-right_xx-small">{f}</span>
-                                                        </template>
-                                                    </div>
-                                                </div>
-                                            </template>
-
-                                            <div class="slds-text-body_small slds-m-bottom_x-small">Object {wizardProgressText}</div>
-                                            <lightning-dual-listbox
-                                                name={currentWizardObject}
-                                                label="Fields to match"
-                                                source-label="Available"
-                                                selected-label="Selected"
-                                                options={currentFieldOptions}
-                                                value={currentSelectedFields}
-                                                onchange={handleMatchingFieldChangeForObject}>
-                                            </lightning-dual-listbox>
-                                            <div class="slds-m-top_x-small">
-                                                <lightning-button-group>
-                                                    <lightning-button variant="neutral" label="Deselect All" onclick={handleMatchingDeselectAll}></lightning-button>
-                                                    <lightning-button variant="neutral" label="Select All" onclick={handleMatchingSelectAll}></lightning-button>
-                                                </lightning-button-group>
-                                            </div>
-                                        </template>
-                                        <template if:false={currentWizardObject}>
-                                            <div class="slds-text-color_weak">No objects available for matching.</div>
-                                        </template>
-                                    </template>
-
-                                    <!-- Step 2: Compare Results (per object) -->
-                                    <template if:true={isMatchingStepResults}>
-                                        <div class="slds-m-bottom_small slds-text-title_caps">Comparison Results &mdash; {currentWizardObject}</div>
-                                        <div class="slds-text-body_small slds-m-bottom_x-small">Object {wizardProgressText}</div>
-                                        <div class="slds-box slds-theme_default slds-m-bottom_small">
-                                            <div class="slds-grid slds-wrap slds-gutters">
-                                                <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"><strong>Source</strong><br />{currentCounts.sourceCount}</div>
-                                                <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"><strong>Destination</strong><br />{currentCounts.destCount}</div>
-                                                <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"><strong>Matched</strong><br />{currentCounts.matchedCount}</div>
-                                                <div class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"><strong>Unmatched</strong><br />{currentUnmatchedCount}</div>
-                                            </div>
-                                        </div>
-                                        <template if:true={hasUnmatchedForCurrent}>
-                                            <div class="slds-text-color_error">{currentUnmatchedCount} record(s) need to be imported.</div>
-                                        </template>
-                                        <template if:false={hasUnmatchedForCurrent}>
-                                            <div class="slds-text-color_success">All records are matched. No import required.</div>
-                                        </template>
-                                        <template if:true={hasUnmatchedForCurrent}>
-                                            <template if:false={isDestinationCurrentOrg}>
-                                                <div class="slds-text-color_error slds-m-top_x-small">Import currently supports Destination = Use Current Org.</div>
-                                            </template>
-                                        </template>
-                                    </template>
-
-                                    <!-- Step 3: Per-object Import Report -->
-                                    <template if:true={isMatchingStepReport}>
-                                        <div class="slds-m-bottom_small slds-text-title_caps">Import Report &mdash; {currentWizardObject}</div>
-                                        <div class="slds-text-body_small slds-m-bottom_x-small">Object {wizardProgressText}</div>
-                                        <template if:true={currentReport}>
-                                            <div class="slds-box slds-theme_default slds-m-bottom_small">
-                                                <div class="slds-grid slds-wrap slds-gutters">
-                                                    <div class="slds-col slds-size_1-of-2"><strong>Success</strong><br />{currentReport.successCount}</div>
-                                                    <div class="slds-col slds-size_1-of-2"><strong>Errors</strong><br />{currentReport.errorCount}</div>
-                                                </div>
-                                            </div>
-                                            <template if:true={currentReport.successes.length}>
-                                                <div class="slds-box slds-theme_success slds-m-bottom_small record-text-black" style="max-height: 200px; overflow-y:auto;">
-                                                    <div class="slds-text-title_bold slds-m-bottom_x-small">Successes</div>
-                                                    <table class="slds-table slds-table_cell-buffer slds-table_bordered">
-                                                        <thead>
-                                                            <tr class="slds-line-height_reset">
-                                                                <th scope="col"><div class="slds-truncate">Name</div></th>
-                                                                <th scope="col"><div class="slds-truncate">Action</div></th>
-                                                                <th scope="col"><div class="slds-truncate">Link</div></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            <template for:each={currentReport.successes} for:item="s">
-                                                                <tr key={s.oldId}>
-                                                                    <td><div class="slds-truncate" title={s.name}>{s.name}</div></td>
-                                                                    <td><div class="slds-truncate">{s.type}</div></td>
-                                                                    <td>
-                                                                        <div class="slds-truncate">
-                                                                            <template if:true={s.recordUrl}>
-                                                                                <lightning-formatted-url value={s.recordUrl} label="View" target="_blank"></lightning-formatted-url>
-                                                                            </template>
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            </template>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </template>
-                                            <template if:true={currentReport.errors.length}>
-                                                <div class="slds-box slds-theme_error slds-m-bottom_small record-text-black" style="max-height: 200px; overflow-y:auto; width: fit-content;">
-                                                    <div class="slds-text-title_bold">Errors</div>
-                                                    <template for:each={currentReport.errors} for:item="e">
-                                                        <div key={e.oldId} class="slds-text-body_small">
-                                                            <strong>{e.oldId}:</strong> {e.errorMessage} <span if:true={e.type}>({e.type})</span>
-                                                        </div>
-                                                    </template>
-                                                </div>
-                                            </template>
-                                        </template>
-                                        <template if:false={currentReport}>
-                                            <div class="slds-text-color_weak">No import results to display.</div>
-                                        </template>
-                                    </template>
-
-                                    <!-- Step 4: Final Summary -->
-                                    <template if:true={isMatchingStepSummary}>
-                                        <div class="slds-m-bottom_small slds-text-title_caps">Check &amp; Import Summary</div>
-                                        <div class="slds-text-body_small slds-m-bottom_x-small">Objects processed: {processedObjectCount} of {totalWizardObjectCount}</div>
-                                        <template if:true={hasFinalReport}>
-                                            <div class="slds-table_header-fixed_container slds-scrollable_y" style="max-height: 380px;">
-                                                <table class="slds-table slds-table_cell-buffer slds-table_bordered">
-                                                    <thead>
-                                                        <tr class="slds-line-height_reset">
-                                                            <th scope="col"><div class="slds-truncate">Object</div></th>
-                                                            <th scope="col"><div class="slds-truncate">Success</div></th>
-                                                            <th scope="col"><div class="slds-truncate">Errors</div></th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        <template for:each={finalReportRows} for:item="row">
-                                                            <tr key={row.objectName}>
-                                                                <td><div class="slds-truncate">{row.objectName}</div></td>
-                                                                <td><div class="slds-truncate">{row.successCount}</div></td>
-                                                                <td><div class="slds-truncate">{row.errorCount}</div></td>
-                                                            </tr>
-                                                        </template>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </template>
-                                        <template if:false={hasFinalReport}>
-                                            <div class="slds-text-color_weak">No import activity recorded.</div>
-                                        </template>
-                                    </template>
-                                </div>
-                                <footer class="slds-modal__footer">
-                                    <template if:true={isMatchingStepSelect}>
-                                        <div class="slds-grid slds-grid_align-spread">
-                                            <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
-                                            <div>
-                                                <lightning-button variant="neutral" label="Previous Object" onclick={handlePrevObject} disabled={isFirstObject}></lightning-button>
-                                                <lightning-button class="slds-m-left_small" variant="brand" label="Check" onclick={handleMatchingCheck} disabled={isMatchingCheckDisabled}></lightning-button>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template if:true={isMatchingStepResults}>
-                                        <div class="slds-grid slds-grid_align-spread">
-                                            <lightning-button variant="neutral" label="Back to Select" onclick={handleStepBack} disabled={isLoading}></lightning-button>
-                                            <div>
-                                                <lightning-button variant="neutral" label="Next Object" onclick={handleMatchingNext} disabled={isLoading}></lightning-button>
-                                                <lightning-button class="slds-m-left_x-small" variant="brand-outline" label="Sync (Upsert)" onclick={handleMatchingUpsert} disabled={isMatchingUpsertDisabled} title="Inserts unmatched and updates matched records"></lightning-button>
-                                                <lightning-button class="slds-m-left_x-small" variant="brand" label={currentImportButtonLabel} onclick={handleMatchingImport} disabled={isMatchingImportDisabled}></lightning-button>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template if:true={isMatchingStepReport}>
-                                        <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
-                                        <lightning-button class="slds-m-left_small" variant="brand" label={nextButtonLabel} onclick={handleMatchingNext} disabled={isLoading}></lightning-button>
-                                    </template>
-                                    <template if:true={isMatchingStepSummary}>
-                                        <lightning-button variant="neutral" label="Cancel" onclick={handleMatchingCancel}></lightning-button>
-                                        <lightning-button class="slds-m-left_small" variant="brand" label="Save" onclick={handleMatchingSave}></lightning-button>
-                                    </template>
-                                </footer>
-                            </div>
-                        </section>
-                        <div class="slds-backdrop slds-backdrop_open"></div>
-                    </template>
-                </template>
+          </div>
+          <template if:true={testMessage}>
+            <div class="slds-m-top_x-small slds-text-color_success">
+              {testMessage}
             </div>
+          </template>
+        </div>
+
+        <!-- Destination Org -->
+        <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+          <h3 class="slds-text-title_caps slds-m-bottom_small">
+            Destination Org
+          </h3>
+          <lightning-combobox
+            name="destinationUseCurrent"
+            label="Use Current Org ?"
+            value={destUseCurrent}
+            options={yesNoOptions}
+            onchange={handleDestinationCurrentPick}
+          ></lightning-combobox>
+          <template if:true={isDestinationCurrentOrg}>
+            <div
+              class="slds-text-color_weak slds-text-body_small slds-m-top_xx-small"
+            >
+              No login needed. Uses this org’s data.
+            </div>
+          </template>
+          <div class={destinationSectionClass}>
+            <lightning-input
+              type="text"
+              label="Username"
+              value={destUsername}
+              onchange={handleDestUsernameChange}
+              disabled={isDestinationCurrentOrg}
+            ></lightning-input>
+            <lightning-input
+              class="slds-m-top_x-small"
+              type="password"
+              label="Password"
+              value={destPassword}
+              onchange={handleDestPasswordChange}
+              disabled={isDestinationCurrentOrg}
+            ></lightning-input>
+            <lightning-combobox
+              class="slds-m-top_x-small"
+              name="destEnvironment"
+              label="Environment"
+              value={destEnvironment}
+              placeholder="Select Environment"
+              options={environmentOptions}
+              onchange={handleDestEnvironmentChange}
+              disabled={isDestinationCurrentOrg}
+            ></lightning-combobox>
+          </div>
+          <div class="slds-m-top_small">
+            <template if:false={isDestinationCurrentOrg}>
+              <lightning-button
+                variant="neutral"
+                label="Test Destination Connection"
+                onclick={handleTestConnectionDestination}
+                if:true={canTestDestination}
+              ></lightning-button>
+            </template>
+          </div>
+          <template if:true={destTestMessage}>
+            <div class="slds-m-top_x-small">{destTestMessage}</div>
+          </template>
+        </div>
+      </div>
+
+      <!-- SOQL + Run Query appear only after Source connection -->
+      <template if:true={isSourceConnected}>
+        <div class="slds-m-top_large">
+          <lightning-textarea
+            label="SOQL"
+            value={soql}
+            onchange={handleSoqlChange}
+            placeholder="SELECT Id, Name FROM Account LIMIT 10"
+          ></lightning-textarea>
+          <div class="slds-m-top_small">
+            <lightning-button
+              variant="brand"
+              label="Run Query"
+              onclick={handleRunQuery}
+              disabled={isRunDisabled}
+            ></lightning-button>
+          </div>
+        </div>
+      </template>
+    </div>
+    <template if:true={error}>
+      <div class="slds-p-horizontal_medium slds-text-color_error">{error}</div>
+    </template>
+
+    <!-- Object Selection Section -->
+    <template if:true={showObjectPicker}>
+      <div class="slds-p-horizontal_medium slds-p-bottom_small">
+        <div class="search-container">
+          <lightning-input
+            type="search"
+            label="Search Objects"
+            value={objectFilter}
+            onchange={handleObjectFilterChange}
+            onfocus={handleObjectInputFocus}
+            onblur={handleObjectInputBlur}
+            placeholder="Type to search objects..."
+            autocomplete="off"
+          >
+          </lightning-input>
+          <template if:true={showSearchResults}>
+            <div class="search-results" onmousedown={handleDropdownMouseDown}>
+              <template for:each={filteredObjectOptions} for:item="obj">
+                <div
+                  key={obj.value}
+                  class="search-result-item"
+                  data-value={obj.value}
+                  onmousedown={handleObjectSelect}
+                >
+                  {obj.label}
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Dependency Tree Configuration -->
+      <template if:false={selectedObjectEmpty}>
+        <div class="slds-p-horizontal_medium slds-p-bottom_small">
+          <div class="slds-m-bottom_small">
+            <lightning-button
+              variant="base"
+              label={moreConfigsLabel}
+              onclick={handleToggleMoreConfigs}
+              class="slds-m-top_x-small"
+            ></lightning-button>
+          </div>
+
+          <template if:true={showMoreConfigs}>
+            <div class="slds-box slds-theme_shade slds-m-bottom_small">
+              <div class="slds-grid slds-wrap slds-gutters">
+                <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
+                  <lightning-input
+                    type="number"
+                    label="Max Depth"
+                    value={maxDepth}
+                    min="0"
+                    max="10"
+                    placeholder="Unlimited (All)"
+                    onchange={handleDepthChange}
+                  ></lightning-input>
+                </div>
+                <div class="slds-col slds-size_1-of-1 slds-medium-size_2-of-3">
+                  <lightning-dual-listbox
+                    name="excludedObjects"
+                    label="Excluded Objects (objects to skip in dependency tree)"
+                    source-label="Available"
+                    selected-label="Excluded"
+                    options={excludedObjectOptions}
+                    value={excludedObjects}
+                    onchange={handleExcludedObjectsChange}
+                  ></lightning-dual-listbox>
+                </div>
+              </div>
+
+              <!-- Quick Filter Buttons -->
+              <div class="slds-p-top_small">
+                <div class="slds-text-body_small slds-m-bottom_x-small">
+                  Quick Filters:
+                </div>
+                <lightning-button-group>
+                  <lightning-button
+                    variant="neutral"
+                    label="Exclude Standard Objects"
+                    onclick={handleSelectStandardObjects}
+                  ></lightning-button>
+                  <lightning-button
+                    variant="neutral"
+                    label="Exclude Custom Objects"
+                    onclick={handleSelectCustomObjects}
+                  ></lightning-button>
+                  <lightning-button
+                    variant="neutral"
+                    label="Clear Exclusions"
+                    onclick={handleClearExclusions}
+                  ></lightning-button>
+                </lightning-button-group>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="slds-p-horizontal_medium slds-p-bottom_small">
+          <lightning-button
+            variant="brand"
+            label="Check Plan"
+            onclick={handleCheckPlan}
+            disabled={selectedObjectEmpty}
+          ></lightning-button>
+        </div>
+      </template>
+    </template>
+
+    <!-- Export Plan Panel -->
+    <template if:true={hasPlan}>
+      <div class="slds-p-around_medium plan-section">
+        <div
+          class="slds-grid slds-wrap slds-gutters slds-m-bottom_small plan-header"
+        >
+          <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+            <h3 class="slds-text-heading_small">
+              Export Plan for <strong>{planRoot.objectName}</strong>
+              <span class="slds-text-color_weak slds-m-left_small"
+                >(Depth: {displayDepth})</span
+              >
+            </h3>
+            <template if:true={exportStats}>
+              <div class="slds-text-body_small slds-m-top_xx-small">
+                Objects: <strong>{exportStats.objectCount}</strong> | Records to
+                Fetch: <strong>{exportStats.totalRecords}</strong>
+              </div>
+            </template>
+          </div>
+          <div
+            class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons"
+          >
+            <lightning-button
+              class="slds-m-right_small"
+              variant="neutral"
+              label="Expand All"
+              onclick={handleExpandAll}
+            ></lightning-button>
+            <lightning-button
+              class="slds-m-right_small"
+              variant="neutral"
+              label="Collapse All"
+              onclick={handleCollapseAll}
+            ></lightning-button>
+          </div>
+        </div>
+        <div class="plan-tree-container">
+          <c-external-org-query-node
+            node={planRoot}
+            onplannodetoggle={handlePlanNodeToggle}
+            onplannodedrop={handlePlanNodeDrop}
+            onplanedgetoggle={handlePlanEdgeToggle}
+            onplanobjecttoggle={handlePlanObjectToggle}
+          >
+          </c-external-org-query-node>
+        </div>
+        <!-- Bottom controls: Limit + Export actions -->
+        <div
+          class="slds-grid slds-wrap slds-gutters slds-m-top_small plan-controls"
+        >
+          <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+            <lightning-input
+              type="number"
+              label="Bootstrap Limit"
+              value={exportLimit}
+              min="1"
+              onchange={handleLimitChange}
+            ></lightning-input>
+          </div>
+          <div
+            class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-align_absolute-center plan-buttons"
+          >
+            <lightning-button
+              class="slds-m-right_small"
+              variant="brand"
+              label="Export"
+              onclick={handleExport}
+              disabled={isExportDisabled}
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="Final Export"
+              onclick={handleFinalExport}
+              disabled={isFinalExportDisabled}
+            ></lightning-button>
+          </div>
+        </div>
+        <!-- Post-final-export actions -->
+        <template if:true={hasFinalQueries}>
+          <div
+            class="slds-grid slds-wrap slds-gutters slds-m-top_small plan-controls"
+          >
+            <div
+              class="slds-col slds-size_1-of-1 slds-align_absolute-center plan-buttons"
+            >
+              <lightning-button
+                class="slds-m-right_small"
+                variant="neutral"
+                label="Check & Import"
+                onclick={handleOpenCheckImport}
+              ></lightning-button>
+              <lightning-button
+                variant="brand"
+                label="Import All"
+                onclick={handleStartImport}
+                disabled={isStartImportDisabled}
+              ></lightning-button>
+            </div>
+          </div>
+
+          <!-- Import Status Section -->
+          <template if:true={importStatus.inProgress}>
+            <div class="slds-m-top_medium slds-box slds-theme_shade">
+              <div class="slds-text-heading_small">Import Progress</div>
+              <div
+                class="slds-progress-bar slds-progress-bar_circular slds-m-top_x-small"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={importProgressPercentage}
+                role="progressbar"
+              >
+                <span
+                  class="slds-progress-bar__value"
+                  style={importProgressStyle}
+                >
+                  <span class="slds-assistive-text"
+                    >Progress: {importProgressPercentage}%</span
+                  >
+                </span>
+              </div>
+              <div class="slds-text-body_small slds-m-top_xx-small">
+                Currently importing: {importStatus.currentObject}
+              </div>
+              <div class="slds-text-body_small">
+                Progress: {importStatus.processedObjects} of
+                {importStatus.totalObjects} objects
+              </div>
+            </div>
+          </template>
+
+          <!-- Import Results -->
+          <template if:true={hasImportResults}>
+            <div class="slds-m-top_medium slds-box slds-theme_default">
+              <div class="slds-text-heading_small slds-m-bottom_small">
+                Import Results
+              </div>
+              <div class="slds-text-body_regular">
+                <div class="slds-grid slds-gutters">
+                  <div class="slds-col">
+                    <span class="slds-text-color_success"
+                      >Success: {importStatus.successCount}</span
+                    >
+                  </div>
+                  <div class="slds-col">
+                    <span class="slds-text-color_error"
+                      >Errors: {importStatus.errorCount}</span
+                    >
+                  </div>
+                </div>
+              </div>
+              <div
+                class="slds-m-top_small"
+                style="max-height: 400px; overflow-y: auto"
+              >
+                <!-- Success Rows Table -->
+                <template if:true={hasSuccessRows}>
+                  <div
+                    class="slds-box slds-theme_success slds-m-bottom_small record-text-black"
+                  >
+                    <div class="slds-text-heading_small slds-m-bottom_x-small">
+                      Success Results
+                    </div>
+                    <table
+                      class="slds-table slds-table_cell-buffer slds-table_bordered"
+                    >
+                      <thead>
+                        <tr class="slds-line-height_reset">
+                          <th scope="col">
+                            <div class="slds-truncate">Object</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate">Name</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate">Source ID</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate">Source Link</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate">Dest. Link</div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template for:each={successRows} for:item="row">
+                          <tr key={row.sourceId}>
+                            <td>
+                              <div class="slds-truncate">{row.objectName}</div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate" title={row.name}>
+                                {row.name}
+                              </div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate">{row.sourceId}</div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate">
+                                <template if:true={row.sourceUrl}>
+                                  <lightning-formatted-url
+                                    value={row.sourceUrl}
+                                    label="Source"
+                                    target="_blank"
+                                  ></lightning-formatted-url>
+                                </template>
+                              </div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate">
+                                <template if:true={row.recordUrl}>
+                                  <lightning-formatted-url
+                                    value={row.recordUrl}
+                                    label="Dest"
+                                    target="_blank"
+                                  ></lightning-formatted-url>
+                                </template>
+                              </div>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </template>
+
+                <!-- Error Rows Table -->
+                <template if:true={hasErrorRows}>
+                  <div
+                    class="slds-box slds-theme_error slds-m-bottom_small record-text-black"
+                    style="width: fit-content"
+                  >
+                    <div class="slds-text-heading_small slds-m-bottom_x-small">
+                      Error Results
+                    </div>
+                    <table
+                      class="slds-table slds-table_cell-buffer slds-table_bordered"
+                    >
+                      <thead>
+                        <tr class="slds-line-height_reset">
+                          <th scope="col">
+                            <div class="slds-truncate">Object</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate">Name</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate">Source ID</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate">Source Link</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate">Error Detail</div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template for:each={errorRows} for:item="row">
+                          <tr key={row.sourceId}>
+                            <td>
+                              <div class="slds-truncate">{row.objectName}</div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate" title={row.name}>
+                                {row.name}
+                              </div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate">{row.sourceId}</div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate">
+                                <template if:true={row.sourceUrl}>
+                                  <lightning-formatted-url
+                                    value={row.sourceUrl}
+                                    label="Source"
+                                    target="_blank"
+                                  ></lightning-formatted-url>
+                                </template>
+                              </div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate" title={row.message}>
+                                {row.message}
+                              </div>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- Matching UI (legacy) -->
+          <template if:true={showMatchingUI}>
+            <div class="slds-m-top_medium slds-box slds-theme_default">
+              <div class="slds-text-heading_small slds-m-bottom_small">
+                Check matching in: {currentMatchingObject.objectName}
+              </div>
+              <lightning-dual-listbox
+                name="matchingFields"
+                label="Fields to match on"
+                source-label="Available"
+                selected-label="Selected"
+                options={matchingFieldsOptions}
+                value={selectedMatchingFields}
+                onchange={handleMatchingFieldChange}
+              >
+              </lightning-dual-listbox>
+              <div class="slds-m-top_x-small">
+                <lightning-button-group>
+                  <lightning-button
+                    variant="neutral"
+                    label="Deselect All"
+                    onclick={handleMatchingDeselectAll}
+                  ></lightning-button>
+                  <lightning-button
+                    variant="neutral"
+                    label="Select All"
+                    onclick={handleMatchingSelectAll}
+                  ></lightning-button>
+                </lightning-button-group>
+              </div>
+              <div class="slds-m-top_small">
+                <lightning-button
+                  variant="brand"
+                  label="Check"
+                  onclick={handleRunMatchingCheck}
+                  disabled={isLoading}
+                >
+                </lightning-button>
+              </div>
+            </div>
+          </template>
+
+          <!-- Check & Import Wizard Modal -->
+          <template if:true={showMatchingUIWizard}>
+            <section
+              role="dialog"
+              tabindex="-1"
+              aria-modal="true"
+              aria-labelledby="checkImportHeading"
+              class="slds-modal slds-fade-in-open"
+            >
+              <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                  <h2 id="checkImportHeading" class="slds-text-heading_medium">
+                    Check & Import
+                  </h2>
+                </header>
+                <div
+                  class="slds-modal__content slds-p-around_medium"
+                  id="modal-content-id-1"
+                >
+                  <!-- Step 1: Field Selection (per object) -->
+                  <template if:true={isMatchingStepSelect}>
+                    <template if:true={currentWizardObject}>
+                      <div class="slds-m-bottom_small slds-text-title_caps">
+                        Select matching fields &mdash; {currentWizardObject}
+                      </div>
+
+                      <template if:true={hasSchemaWarnings}>
+                        <div
+                          class="slds-box slds-theme_warning slds-theme_alert-texture slds-m-bottom_small"
+                        >
+                          <div class="slds-text-body_small">
+                            <strong>Schema Mismatch:</strong> The following
+                            fields exist in Source but <strong>NOT</strong> in
+                            Destination. They will be skipped during import:
+                          </div>
+                          <div class="slds-text-body_small slds-m-top_xx-small">
+                            <template
+                              for:each={currentSchemaWarnings}
+                              for:item="f"
+                            >
+                              <span
+                                key={f}
+                                class="slds-badge slds-theme_warning slds-m-right_xx-small"
+                                >{f}</span
+                              >
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+
+                      <div class="slds-text-body_small slds-m-bottom_x-small">
+                        Object {wizardProgressText}
+                      </div>
+                      <lightning-dual-listbox
+                        name={currentWizardObject}
+                        label="Fields to match"
+                        source-label="Available"
+                        selected-label="Selected"
+                        options={currentFieldOptions}
+                        value={currentSelectedFields}
+                        onchange={handleMatchingFieldChangeForObject}
+                      >
+                      </lightning-dual-listbox>
+                      <div class="slds-m-top_x-small">
+                        <lightning-button-group>
+                          <lightning-button
+                            variant="neutral"
+                            label="Deselect All"
+                            onclick={handleMatchingDeselectAll}
+                          ></lightning-button>
+                          <lightning-button
+                            variant="neutral"
+                            label="Select All"
+                            onclick={handleMatchingSelectAll}
+                          ></lightning-button>
+                        </lightning-button-group>
+                      </div>
+                    </template>
+                    <template if:false={currentWizardObject}>
+                      <div class="slds-text-color_weak">
+                        No objects available for matching.
+                      </div>
+                    </template>
+                  </template>
+
+                  <!-- Step 2: Compare Results (per object) -->
+                  <template if:true={isMatchingStepResults}>
+                    <div class="slds-m-bottom_small slds-text-title_caps">
+                      Comparison Results &mdash; {currentWizardObject}
+                    </div>
+                    <div class="slds-text-body_small slds-m-bottom_x-small">
+                      Object {wizardProgressText}
+                    </div>
+                    <div
+                      class="slds-box slds-theme_default slds-m-bottom_small"
+                    >
+                      <div class="slds-grid slds-wrap slds-gutters">
+                        <div
+                          class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"
+                        >
+                          <strong>Source</strong
+                          ><br />{currentCounts.sourceCount}
+                        </div>
+                        <div
+                          class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"
+                        >
+                          <strong>Destination</strong
+                          ><br />{currentCounts.destCount}
+                        </div>
+                        <div
+                          class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"
+                        >
+                          <strong>Matched</strong
+                          ><br />{currentCounts.matchedCount}
+                        </div>
+                        <div
+                          class="slds-col slds-size_1-of-2 slds-small-size_1-of-4"
+                        >
+                          <strong>Unmatched</strong
+                          ><br />{currentUnmatchedCount}
+                        </div>
+                      </div>
+                    </div>
+                    <template if:true={hasUnmatchedForCurrent}>
+                      <div class="slds-text-color_error">
+                        {currentUnmatchedCount} record(s) need to be imported.
+                      </div>
+                    </template>
+                    <template if:false={hasUnmatchedForCurrent}>
+                      <div class="slds-text-color_success">
+                        All records are matched. No import required.
+                      </div>
+                    </template>
+                    <template if:true={hasUnmatchedForCurrent}>
+                      <template if:false={isDestinationCurrentOrg}>
+                        <div class="slds-text-color_error slds-m-top_x-small">
+                          Import currently supports Destination = Use Current
+                          Org.
+                        </div>
+                      </template>
+                    </template>
+                  </template>
+
+                  <!-- Step 3: Per-object Import Report -->
+                  <template if:true={isMatchingStepReport}>
+                    <div class="slds-m-bottom_small slds-text-title_caps">
+                      Import Report &mdash; {currentWizardObject}
+                    </div>
+                    <div class="slds-text-body_small slds-m-bottom_x-small">
+                      Object {wizardProgressText}
+                    </div>
+                    <template if:true={currentReport}>
+                      <div
+                        class="slds-box slds-theme_default slds-m-bottom_small"
+                      >
+                        <div class="slds-grid slds-wrap slds-gutters">
+                          <div class="slds-col slds-size_1-of-2">
+                            <strong>Success</strong
+                            ><br />{currentReport.successCount}
+                          </div>
+                          <div class="slds-col slds-size_1-of-2">
+                            <strong>Errors</strong
+                            ><br />{currentReport.errorCount}
+                          </div>
+                        </div>
+                      </div>
+                      <template if:true={currentReport.successes.length}>
+                        <div
+                          class="slds-box slds-theme_success slds-m-bottom_small record-text-black"
+                          style="max-height: 200px; overflow-y: auto"
+                        >
+                          <div
+                            class="slds-text-title_bold slds-m-bottom_x-small"
+                          >
+                            Successes
+                          </div>
+                          <table
+                            class="slds-table slds-table_cell-buffer slds-table_bordered"
+                          >
+                            <thead>
+                              <tr class="slds-line-height_reset">
+                                <th scope="col">
+                                  <div class="slds-truncate">Name</div>
+                                </th>
+                                <th scope="col">
+                                  <div class="slds-truncate">Action</div>
+                                </th>
+                                <th scope="col">
+                                  <div class="slds-truncate">Link</div>
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <template
+                                for:each={currentReport.successes}
+                                for:item="s"
+                              >
+                                <tr key={s.oldId}>
+                                  <td>
+                                    <div class="slds-truncate" title={s.name}>
+                                      {s.name}
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <div class="slds-truncate">{s.type}</div>
+                                  </td>
+                                  <td>
+                                    <div class="slds-truncate">
+                                      <template if:true={s.recordUrl}>
+                                        <lightning-formatted-url
+                                          value={s.recordUrl}
+                                          label="View"
+                                          target="_blank"
+                                        ></lightning-formatted-url>
+                                      </template>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </template>
+                            </tbody>
+                          </table>
+                        </div>
+                      </template>
+                      <template if:true={currentReport.errors.length}>
+                        <div
+                          class="slds-box slds-theme_error slds-m-bottom_small record-text-black"
+                          style="
+                            max-height: 200px;
+                            overflow-y: auto;
+                            width: fit-content;
+                          "
+                        >
+                          <div class="slds-text-title_bold">Errors</div>
+                          <template
+                            for:each={currentReport.errors}
+                            for:item="e"
+                          >
+                            <div key={e.oldId} class="slds-text-body_small">
+                              <strong>{e.oldId}:</strong> {e.errorMessage}
+                              <span if:true={e.type}>({e.type})</span>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </template>
+                    <template if:false={currentReport}>
+                      <div class="slds-text-color_weak">
+                        No import results to display.
+                      </div>
+                    </template>
+                  </template>
+
+                  <!-- Step 4: Final Summary -->
+                  <template if:true={isMatchingStepSummary}>
+                    <div class="slds-m-bottom_small slds-text-title_caps">
+                      Check &amp; Import Summary
+                    </div>
+                    <div class="slds-text-body_small slds-m-bottom_x-small">
+                      Objects processed: {processedObjectCount} of
+                      {totalWizardObjectCount}
+                    </div>
+                    <template if:true={hasFinalReport}>
+                      <div
+                        class="slds-table_header-fixed_container slds-scrollable_y"
+                        style="max-height: 380px"
+                      >
+                        <table
+                          class="slds-table slds-table_cell-buffer slds-table_bordered"
+                        >
+                          <thead>
+                            <tr class="slds-line-height_reset">
+                              <th scope="col">
+                                <div class="slds-truncate">Object</div>
+                              </th>
+                              <th scope="col">
+                                <div class="slds-truncate">Success</div>
+                              </th>
+                              <th scope="col">
+                                <div class="slds-truncate">Errors</div>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <template for:each={finalReportRows} for:item="row">
+                              <tr key={row.objectName}>
+                                <td>
+                                  <div class="slds-truncate">
+                                    {row.objectName}
+                                  </div>
+                                </td>
+                                <td>
+                                  <div class="slds-truncate">
+                                    {row.successCount}
+                                  </div>
+                                </td>
+                                <td>
+                                  <div class="slds-truncate">
+                                    {row.errorCount}
+                                  </div>
+                                </td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                    </template>
+                    <template if:false={hasFinalReport}>
+                      <div class="slds-text-color_weak">
+                        No import activity recorded.
+                      </div>
+                    </template>
+                  </template>
+                </div>
+                <footer class="slds-modal__footer">
+                  <template if:true={isMatchingStepSelect}>
+                    <div class="slds-grid slds-grid_align-spread">
+                      <lightning-button
+                        variant="neutral"
+                        label="Cancel"
+                        onclick={handleMatchingCancel}
+                      ></lightning-button>
+                      <div>
+                        <lightning-button
+                          variant="neutral"
+                          label="Previous Object"
+                          onclick={handlePrevObject}
+                          disabled={isFirstObject}
+                        ></lightning-button>
+                        <lightning-button
+                          class="slds-m-left_small"
+                          variant="brand"
+                          label="Check"
+                          onclick={handleMatchingCheck}
+                          disabled={isMatchingCheckDisabled}
+                        ></lightning-button>
+                      </div>
+                    </div>
+                  </template>
+                  <template if:true={isMatchingStepResults}>
+                    <div class="slds-grid slds-grid_align-spread">
+                      <lightning-button
+                        variant="neutral"
+                        label="Back to Select"
+                        onclick={handleStepBack}
+                        disabled={isLoading}
+                      ></lightning-button>
+                      <div>
+                        <lightning-button
+                          variant="neutral"
+                          label="Next Object"
+                          onclick={handleMatchingNext}
+                          disabled={isLoading}
+                        ></lightning-button>
+                        <lightning-button
+                          class="slds-m-left_x-small"
+                          variant="brand-outline"
+                          label="Sync (Upsert)"
+                          onclick={handleMatchingUpsert}
+                          disabled={isMatchingUpsertDisabled}
+                          title="Inserts unmatched and updates matched records"
+                        ></lightning-button>
+                        <lightning-button
+                          class="slds-m-left_x-small"
+                          variant="brand"
+                          label={currentImportButtonLabel}
+                          onclick={handleMatchingImport}
+                          disabled={isMatchingImportDisabled}
+                        ></lightning-button>
+                      </div>
+                    </div>
+                  </template>
+                  <template if:true={isMatchingStepReport}>
+                    <lightning-button
+                      variant="neutral"
+                      label="Cancel"
+                      onclick={handleMatchingCancel}
+                    ></lightning-button>
+                    <lightning-button
+                      class="slds-m-left_small"
+                      variant="brand"
+                      label={nextButtonLabel}
+                      onclick={handleMatchingNext}
+                      disabled={isLoading}
+                    ></lightning-button>
+                  </template>
+                  <template if:true={isMatchingStepSummary}>
+                    <lightning-button
+                      variant="neutral"
+                      label="Cancel"
+                      onclick={handleMatchingCancel}
+                    ></lightning-button>
+                    <lightning-button
+                      class="slds-m-left_small"
+                      variant="brand"
+                      label="Save"
+                      onclick={handleMatchingSave}
+                    ></lightning-button>
+                  </template>
+                </footer>
+              </div>
+            </section>
+            <div class="slds-backdrop slds-backdrop_open"></div>
+          </template>
         </template>
-    </lightning-card>
+      </div>
+    </template>
+  </lightning-card>
 </template>

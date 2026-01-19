@@ -1,130 +1,136 @@
 .plan-node {
-    border: 1px solid #dddbda;
-    border-radius: 0.25rem;
-    background-color: #ffffff;
-    margin-bottom: 0.5rem;
-    box-shadow: 0 1px 2px rgba(22, 50, 92, 0.08);
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
-    padding: 0.5rem 0.75rem;
+  border: 1px solid #dddbda;
+  border-radius: 0.25rem;
+  background-color: #ffffff;
+  margin-bottom: 0.5rem;
+  box-shadow: 0 1px 2px rgba(22, 50, 92, 0.08);
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+  padding: 0.5rem 0.75rem;
 }
 
 /* Differentiate edge vs object nodes */
 .plan-node--edge {
-    border-left: 4px solid #5b9bd5;
-    background-color: #f6fbff;
+  border-left: 4px solid #5b9bd5;
+  background-color: #f6fbff;
 }
 
 .plan-node--object {
-    border-left: 4px solid #98a2b3;
+  border-left: 4px solid #98a2b3;
 }
 
 .plan-node--edge .plan-node__label {
-    color: #0b5cab;
+  color: #0b5cab;
 }
 
 /* Muted/locked visuals */
 .plan-node--locked {
-    opacity: 0.6;
-    border-left-color: #d0d5dd !important;
-    background-color: #fafafa;
+  opacity: 0.6;
+  border-left-color: #d0d5dd !important;
+  background-color: #fafafa;
 }
 
 lightning-input.plan-checkbox--locked {
-    opacity: 0.5;
-    filter: grayscale(80%);
-    cursor: not-allowed;
+  opacity: 0.5;
+  filter: grayscale(80%);
+  cursor: not-allowed;
 }
 
 .plan-node__seq {
-    margin-right: 0.25rem;
-    color: #98a2b3;
-    font-weight: 600;
+  margin-right: 0.25rem;
+  color: #98a2b3;
+  font-weight: 600;
 }
 
 .plan-node:last-child {
-    margin-bottom: 0;
+  margin-bottom: 0;
 }
 
 .plan-node--parent {
-    background-image: linear-gradient(135deg, rgba(0, 112, 210, 0.04), rgba(0, 85, 164, 0.05));
+  background-image: linear-gradient(
+    135deg,
+    rgba(0, 112, 210, 0.04),
+    rgba(0, 85, 164, 0.05)
+  );
 }
 
 .plan-node--draggable {
-    cursor: grab;
+  cursor: grab;
 }
 
 .plan-node--draggable:active {
-    cursor: grabbing;
+  cursor: grabbing;
 }
 
 .plan-node--draggable:hover {
-    box-shadow: 0 4px 10px rgba(22, 50, 92, 0.12);
-    transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(22, 50, 92, 0.12);
+  transform: translateY(-1px);
 }
 
 .plan-node__header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .plan-node__toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .plan-node__details {
-    flex: 1 1 auto;
-    min-width: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .plan-node__label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #16325c;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #16325c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .plan-node__meta {
-    font-size: 0.7rem;
-    color: #5f6a7d;
+  font-size: 0.7rem;
+  color: #5f6a7d;
 }
 
 .plan-node__drag {
-    color: #98a2b3;
+  color: #98a2b3;
 }
 
 .plan-node__leaf-icon {
-    color: #a8b0bf;
+  color: #a8b0bf;
 }
 
 .plan-node__children {
-    margin-top: 0.5rem;
-    padding-left: 0.75rem;
-    border-left: 2px solid rgba(0, 112, 210, 0.2);
-    display: flex;
-    flex-direction: column;
+  margin-top: 0.5rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid rgba(0, 112, 210, 0.2);
+  display: flex;
+  flex-direction: column;
 }
 
 .plan-node__children > c-external-org-query-node {
-    margin-top: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 .plan-node__children > c-external-org-query-node:first-child {
-    margin-top: 0;
+  margin-top: 0;
 }
 
 @media (max-width: 768px) {
-    .plan-node__header {
-        flex-wrap: wrap;
-        align-items: flex-start;
-    }
+  .plan-node__header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
 
-    .plan-node__drag {
-        align-self: flex-start;
-    }
+  .plan-node__drag {
+    align-self: flex-start;
+  }
 }

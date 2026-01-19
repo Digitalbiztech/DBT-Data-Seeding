@@ -1,52 +1,79 @@
 <template>
-    <div
-        class={containerClass}
-        data-node-id={node.id}
-        draggable={isDraggable}
-        ondragstart={handleDragStart}
-        ondragover={handleDragOver}
-        ondrop={handleDrop}>
-        <template if:true={showHeader}>
-        <div class="plan-node__header">
-            <div class="plan-node__toggle">
-                <template if:true={hasChildren}>
-                    <lightning-button-icon
-                        icon-name={toggleIcon}
-                        size="xx-small"
-                        variant="bare"
-                        alternative-text="Toggle children"
-                        onclick={handleToggle}>
-                    </lightning-button-icon>
-                </template>
-                <template if:false={hasChildren}>
-                    <lightning-icon icon-name="utility:record" size="xx-small" class="plan-node__leaf-icon"></lightning-icon>
-                </template>
-            </div>
-            <div class="plan-node__details">
-                <template if:true={isEdge}>
-                    <lightning-input type="checkbox" checked={node.isSelected} disabled={isDisabled} onchange={handleEdgeCheckboxChange} class={edgeCheckboxClass}></lightning-input>
-                </template>
-                <template if:true={showObjectCheckbox}>
-                    <lightning-input type="checkbox" checked={objectChecked} disabled={isDisabled} onchange={handleObjectCheckboxChange} class={objectCheckboxClass}></lightning-input>
-                </template>
-                <div class="plan-node__label" title={node.label}>
-                    <template if:true={node.seq}><span class="plan-node__seq">{node.seq}.</span></template>{node.label}
-                </div>
-            </div>
-            <template if:true={isDraggable}>
-                <lightning-icon icon-name="utility:drag_and_drop" size="xx-small" class="plan-node__drag"></lightning-icon>
-            </template>
+  <div
+    class={containerClass}
+    data-node-id={node.id}
+    draggable={isDraggable}
+    ondragstart={handleDragStart}
+    ondragover={handleDragOver}
+    ondrop={handleDrop}
+  >
+    <template if:true={showHeader}>
+      <div class="plan-node__header">
+        <div class="plan-node__toggle">
+          <template if:true={hasChildren}>
+            <lightning-button-icon
+              icon-name={toggleIcon}
+              size="xx-small"
+              variant="bare"
+              alternative-text="Toggle children"
+              onclick={handleToggle}
+            >
+            </lightning-button-icon>
+          </template>
+          <template if:false={hasChildren}>
+            <lightning-icon
+              icon-name="utility:record"
+              size="xx-small"
+              class="plan-node__leaf-icon"
+            ></lightning-icon>
+          </template>
         </div>
+        <div class="plan-node__details">
+          <template if:true={isEdge}>
+            <lightning-input
+              type="checkbox"
+              checked={node.isSelected}
+              disabled={isDisabled}
+              onchange={handleEdgeCheckboxChange}
+              class={edgeCheckboxClass}
+            ></lightning-input>
+          </template>
+          <template if:true={showObjectCheckbox}>
+            <lightning-input
+              type="checkbox"
+              checked={objectChecked}
+              disabled={isDisabled}
+              onchange={handleObjectCheckboxChange}
+              class={objectCheckboxClass}
+            ></lightning-input>
+          </template>
+          <div class="plan-node__label" title={node.label}>
+            <template if:true={node.seq}
+              ><span class="plan-node__seq">{node.seq}.</span></template
+            >{node.label}
+          </div>
+        </div>
+        <template if:true={isDraggable}>
+          <lightning-icon
+            icon-name="utility:drag_and_drop"
+            size="xx-small"
+            class="plan-node__drag"
+          ></lightning-icon>
         </template>
+      </div>
+    </template>
 
-        <template if:true={hasChildren}>
-            <template if:false={node.isCollapsed}>
-                <div class="plan-node__children">
-                    <template for:each={node.children} for:item="child">
-                        <c-external-org-query-node key={child.id} node={child}></c-external-org-query-node>
-                    </template>
-                </div>
-            </template>
-        </template>
-    </div>
+    <template if:true={hasChildren}>
+      <template if:false={node.isCollapsed}>
+        <div class="plan-node__children">
+          <template for:each={node.children} for:item="child">
+            <c-external-org-query-node
+              key={child.id}
+              node={child}
+            ></c-external-org-query-node>
+          </template>
+        </div>
+      </template>
+    </template>
+  </div>
 </template>
