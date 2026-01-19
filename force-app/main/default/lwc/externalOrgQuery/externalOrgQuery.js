@@ -16,6 +16,7 @@ import findMatchingRecords from '@salesforce/apex/ExternalOrgQueryController.fin
 import startDataSeedingBatch from '@salesforce/apex/ExternalOrgQueryController.startDataSeedingBatch';
 import getBatchJobStatus from '@salesforce/apex/ExternalOrgQueryController.getBatchJobStatus';
 import getBatchReport from '@salesforce/apex/ExternalOrgQueryController.getBatchReport';
+import getRequiredFields from '@salesforce/apex/ExternalOrgQueryController.getRequiredFields';
 
 const STANDARD_OBJECT_NAMES = new Set([
     'Account', 'Contact', 'Lead', 'Opportunity', 'Case', 'Campaign', 'Product2',
@@ -633,6 +634,66 @@ export default class ExternalOrgQuery extends LightningElement {
             }
         }
 
+    applySoqlConstraints() {
+        if (!this.planRoot || !this.soqlConstraints) return;
+        
+        const constraints = this.soqlConstraints;
+        const requestedRels = new Set((constraints.relationships || []).map(r => r.toLowerCase()));
+        const subqueries = new Set((constraints.subqueries || []).map(s => s.toLowerCase()));
+        
+        // Helper to uncheck everything first
+        const setAll = (node, selected) => {
+            if (!node) return;
+            if (node.type === 'edge') {
+                node.isSelected = selected;
+                node.lockedByAncestor = !selected;
+            } else {
+                node.lockedByAncestor = !selected;
+            }
+            if (node.children) {
+                node.children.forEach(c => setAll(c, selected));
+            }
+        };
+        
+        // If SELECT * or no constraints, select all (default behavior)
+        if (!constraints.fields) {
+            return;
+        }
+
+        // Unselect everything initially
+        const root = this.clonePlanNode(this.planRoot);
+        setAll(root, false);
+        
+        // Traverse and select required paths
+        root.lockedByAncestor = false; // Root is active
+        
+        const processNode = (node) => {
+            if (!node || !node.children) return;
+            
+            node.children.forEach(child => {
+                if (child.type === 'edge') {
+                    const relName = (child.relationshipName || child.fieldName || '').toLowerCase();
+                    const isSubquery = child.relationshipType === 'Child' && subqueries.has(relName);
+                    const isRequested = requestedRels.has(relName);
+                    
+                    if (isRequested || isSubquery || child.isRequired) {
+                        child.isSelected = true;
+                        child.lockedByAncestor = false;
+                        if (child.children && child.children[0]) {
+                            // Unlock the target object
+                            child.children[0].lockedByAncestor = false;
+                        }
+                    }
+                }
+            });
+        };
+        
+        processNode(root);
+        
+        this.planRoot = root;
+        this.effectiveDepth = this.calculateSelectedDepth(this.planRoot);
+    }
+
     handlePlanNodeToggle = (event) => {
         const { nodeId } = event.detail || {};
         if (!nodeId || !this.planRoot) {
@@ -772,7 +833,7 @@ export default class ExternalOrgQuery extends LightningElement {
     collectPlanEdges(root) {
         const edgesByObject = new Map();
         const visitedEdges = new Set();
-        const addEdge = (fromObj, fieldName, toObj) => {
+        const addEdge = (fromObj, fieldName, toObj, relName, type, isRequired) => {
             if (!fromObj || !fieldName || !toObj) {
                 return;
             }
@@ -780,8 +841,9 @@ export default class ExternalOrgQuery extends LightningElement {
                 edgesByObject.set(fromObj, []);
             }
             const existing = edgesByObject.get(fromObj);
+            // Use composite key to avoid duplicates? Or simply check if already added
             if (!existing.some(edge => edge.fieldName === fieldName && edge.target === toObj)) {
-                existing.push({ fieldName, target: toObj });
+                existing.push({ fieldName, target: toObj, relationshipName: relName, relationshipType: type, isRequired });
             }
         };
 
@@ -796,7 +858,7 @@ export default class ExternalOrgQuery extends LightningElement {
             for (const parent of parents) {
                 const edgeKey = `${currentObjectName}|${parent.fieldName}|${parent.objectName}`;
                 if (!visitedEdges.has(edgeKey)) {
-                    addEdge(currentObjectName, parent.fieldName, parent.objectName);
+                    addEdge(currentObjectName, parent.fieldName, parent.objectName, parent.relationshipName, parent.relationshipType, parent.isRequired);
                     visitedEdges.add(edgeKey);
                 }
                 if (parent.objectName && !nextPath.has(parent.objectName)) {
@@ -806,6 +868,17 @@ export default class ExternalOrgQuery extends LightningElement {
         };
 
         if (root && root.objectName) {
+            // Also collect child relationships from root.children if present
+            if (root.children) {
+                // We treat child relationships as edges from Root -> Child
+                root.children.forEach(child => {
+                    const edgeKey = `${root.objectName}|${child.fieldName}|${child.objectName}`;
+                    if (!visitedEdges.has(edgeKey)) {
+                        addEdge(root.objectName, child.fieldName, child.objectName, child.relationshipName, 'Child', false);
+                        visitedEdges.add(edgeKey);
+                    }
+                });
+            }
             walkParents(root.objectName, root.parents || []);
         }
 
@@ -818,6 +891,25 @@ export default class ExternalOrgQuery extends LightningElement {
             if (!edgesByObject.has(node.objectName)) {
                 edgesByObject.set(node.objectName, []);
             }
+            // Collect children edges here too for deep traversal?
+            // The original logic only traversed `parents` which are Lookups.
+            // Child relationships (downwards) were only at the root level in the Apex tree?
+            // Apex `buildDependencyTree` returns a root with `children` (child relationships).
+            // But it doesn't recurse down children unless we implement full graph traversal.
+            // Currently `collectObjects` recursively visits `parents`.
+            
+            // If the node has children (Child Relationships), add them as edges
+            if (node.children) {
+                node.children.forEach(child => {
+                    // Only add if not already visited?
+                    const edgeKey = `${node.objectName}|${child.fieldName}|${child.objectName}`;
+                    if (!visitedEdges.has(edgeKey)) {
+                        addEdge(node.objectName, child.fieldName, child.objectName, child.relationshipName, 'Child', false);
+                        visitedEdges.add(edgeKey);
+                    }
+                });
+            }
+            
             (node.parents || []).forEach(collectObjects);
         };
         collectObjects(root);
@@ -835,9 +927,12 @@ export default class ExternalOrgQuery extends LightningElement {
             return {
                 id: edgeId,
                 type: 'edge',
-                label: `${edge.fieldName} -> ${edge.target}`,
+                label: `${edge.relationshipName || edge.fieldName} -> ${edge.target}`, // Use relationship name if avail
                 objectName: fromObj,
                 fieldName: edge.fieldName,
+                relationshipName: edge.relationshipName,
+                relationshipType: edge.relationshipType,
+                isRequired: edge.isRequired,
                 targetObject: edge.target,
                 isCollapsed: false,
                 isLeaf: false,
@@ -899,8 +994,9 @@ export default class ExternalOrgQuery extends LightningElement {
         return null;
     }
 
+    @track soqlConstraints;
+
     async handleRunQuery() {
-        // Now only parses SOQL and updates object/limit; no data fetching
         this.error = undefined;
         this.testMessage = undefined;
         this.debug('Run Query clicked', {
@@ -914,9 +1010,7 @@ export default class ExternalOrgQuery extends LightningElement {
             this.debug('Blocked: source not connected');
             return;
         }
-        if (!this.showObjectPicker) {
-            this.debug('Blocked: object picklist not loaded yet');
-        }
+        
         try {
             const parsed = this.parseSoql(this.soql || '');
             if (parsed && parsed.objectName) {
@@ -924,18 +1018,24 @@ export default class ExternalOrgQuery extends LightningElement {
                 const match = this.findAvailableObjectMatch(obj);
                 if (match) {
                     this.selectedObject = match;
-                    this.dependencyTree = undefined;
-                    this.debug('Selected object set from SOQL (matched):', this.selectedObject);
+                    // Preserve constraints for plan generation
+                    this.soqlConstraints = parsed;
+                    
+                    if (Number.isFinite(parsed.limit)) {
+                        this.exportLimit = parsed.limit;
+                    }
+                    
+                    // Automatically trigger plan check
+                    this.debug('Auto-triggering Check Plan for:', this.selectedObject);
+                    // Use a small delay to allow UI to update selectedObject if needed, though track should handle it
+                    // Directly calling handleCheckPlan
+                    await this.handleCheckPlan(true); // pass true for auto-apply
                 } else {
-                    const msg = `Object \"${obj}\" not found in available objects`;
+                    const msg = `Object "${obj}" not found in available objects`;
                     this.error = msg;
                     this.debug('SOQL object match error:', msg);
                 }
             }
-            if (parsed && Number.isFinite(parsed.limit)) {
-                this.exportLimit = parsed.limit;
-                // limit set from query LIMIT clause
-                }
         } catch (parseErr) {
             this.error = parseErr && parseErr.message ? parseErr.message : 'Failed to parse SOQL';
         }
@@ -943,24 +1043,98 @@ export default class ExternalOrgQuery extends LightningElement {
 
     parseSoql(soql) {
         const text = (soql || '').trim();
-        if (!text) {
-            throw new Error('SOQL is empty');
-        }
-        const fromMatch = text.match(/\bfrom\s+([a-zA-Z0-9_]+)/i);
-        if (!fromMatch || !fromMatch[1]) {
-            throw new Error('Unable to detect object name after FROM');
-        }
-        const objectName = fromMatch[1];
-        let limit;
-        const limMatch = text.match(/\blimit\s+(\d+)/i);
-        if (limMatch && limMatch[1]) {
-            const n = parseInt(limMatch[1], 10);
-            if (!Number.isFinite(n)) {
-                throw new Error('Invalid LIMIT value');
+        if (!text) throw new Error('SOQL is empty');
+
+        let balance = 0;
+        let fromIndex = -1;
+        const upper = text.toUpperCase();
+        
+        for (let i = 0; i < upper.length; i++) {
+            const char = upper[i];
+            if (char === '(') balance++;
+            else if (char === ')') balance--;
+            
+            if (balance === 0 && upper.substring(i).startsWith('FROM')) {
+                const afterFrom = upper[i + 4];
+                // Check if FROM is a whole word (followed by whitespace or EOF)
+                if (!afterFrom || /\s/.test(afterFrom)) {
+                    fromIndex = i;
+                    break;
+                }
             }
-            limit = n;
         }
-        return { objectName, limit };
+
+        if (fromIndex === -1) throw new Error('Unable to find top-level FROM clause');
+
+        const selectPart = text.substring(6, fromIndex).trim(); 
+        const restPart = text.substring(fromIndex + 4).trim(); // Skip 'FROM' (4 chars)
+
+        const objectMatch = restPart.match(/^([a-zA-Z0-9_]+)/);
+        if (!objectMatch) throw new Error('Unable to parse object name');
+        const objectName = objectMatch[1];
+
+        let limitVal;
+        const limitMatch = restPart.match(/\bLIMIT\s+(\d+)/i);
+        if (limitMatch) {
+            limitVal = parseInt(limitMatch[1], 10);
+        }
+
+        const fields = [];
+        const subqueries = [];
+        const relationships = new Set();
+        
+        let currentToken = '';
+        balance = 0;
+        for (let i = 0; i < selectPart.length; i++) {
+            const c = selectPart[i];
+            if (c === '(') balance++;
+            if (c === ')') balance--;
+            
+            if (c === ',' && balance === 0) {
+                this.processSelectToken(currentToken.trim(), fields, subqueries, relationships);
+                currentToken = '';
+            } else {
+                currentToken += c;
+            }
+        }
+        if (currentToken.trim()) {
+            this.processSelectToken(currentToken.trim(), fields, subqueries, relationships);
+        }
+
+        const isWildcard = fields.some(f => f === '*');
+
+        return {
+            objectName,
+            limit: limitVal,
+            fields: isWildcard ? null : fields,
+            subqueries,
+            relationships: isWildcard ? null : Array.from(relationships)
+        };
+    }
+
+    processSelectToken(token, fields, subqueries, relationships) {
+        if (!token) return;
+        
+        // Check for subquery
+        if (token.toUpperCase().startsWith('(SELECT')) {
+            // Extract FROM in subquery
+            const match = token.match(/\bFROM\s+([a-zA-Z0-9_]+)/i);
+            if (match) {
+                const rel = match[1];
+                subqueries.push(rel);
+                relationships.add(rel);
+            }
+        } else {
+            // Standard field
+            fields.push(token);
+            // Check for Parent.Field
+            if (token.includes('.')) {
+                const parts = token.split('.');
+                // Add all prefixes as required relationships (e.g. Account.Owner.Name -> Account, Account.Owner)
+                // Simply taking the first part usually works for immediate parent
+                relationships.add(parts[0]);
+            }
+        }
     }
 
     stripNamespace(name) {
@@ -1882,12 +2056,35 @@ export default class ExternalOrgQuery extends LightningElement {
                 const srcFields = (sourceCreatableMap && sourceCreatableMap[objectName]) || [];
                 const dstFields = (destCreatableMap && destCreatableMap[objectName]) || [];
                 const dstSet = new Set(dstFields);
-                const intersect = srcFields.filter((f) => f && f !== 'Id' && f !== 'OwnerId' && dstSet.has(f));
+                let intersect = srcFields.filter((f) => f && f !== 'Id' && f !== 'OwnerId' && dstSet.has(f));
                 
                 // Identify schema mismatches
                 const droppedFields = srcFields.filter(f => f && f !== 'Id' && f !== 'OwnerId' && !dstSet.has(f));
                 if (droppedFields.length > 0) {
                     this.schemaWarnings.set(objectName, droppedFields);
+                }
+
+                // Apply SOQL Field Constraints
+                if (this.soqlConstraints && this.soqlConstraints.fields && this.soqlConstraints.objectName === objectName) {
+                    const requested = new Set(this.soqlConstraints.fields.map(f => f.toLowerCase()));
+                    
+                    // Fetch required fields to ensure we don't break insert
+                    let requiredFields = [];
+                    try {
+                        requiredFields = await this.routeDestinationCall(
+                            () => [], // Local required fields logic not strictly needed if we assume standard valid fields or could implement similarly
+                            () => getRequiredFields({ sessionId: this.destSessionId, instanceUrl: this.destInstanceUrl, objectName })
+                        );
+                    } catch (reqErr) {
+                        console.warn('Failed to fetch required fields', reqErr);
+                    }
+                    const requiredSet = new Set((requiredFields || []).map(f => f.toLowerCase()));
+
+                    // Filter intersect: keep if requested OR required
+                    intersect = intersect.filter(f => {
+                        const flow = f.toLowerCase();
+                        return requested.has(flow) || requiredSet.has(flow); 
+                    });
                 }
 
                 const uniqueFields = ['Id', ...intersect];
@@ -1990,7 +2187,7 @@ export default class ExternalOrgQuery extends LightningElement {
         return order;
     }
 
-    async handleCheckPlan() {
+    async handleCheckPlan(autoApply = false) {
         // Require an object, and if using external session, require a tested connection
         if (!this.selectedObject) {
             this.error = 'Please select an object and ensure connection is established';
@@ -2028,6 +2225,10 @@ export default class ExternalOrgQuery extends LightningElement {
             console.log(JSON.stringify({ type: 'EXPORT_PLAN', root: this.selectedObject, order: this.exportOrder }, null, 2));
             
             console.log('Dependencies retrieved:', dependencies);
+            
+            if (autoApply && this.soqlConstraints) {
+                this.applySoqlConstraints();
+            }
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Failed to get dependencies');
             console.error('Error getting dependencies', this.error);

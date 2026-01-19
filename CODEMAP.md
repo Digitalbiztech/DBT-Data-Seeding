@@ -18,6 +18,7 @@ Backend logic handles authentication with external Salesforce organizations, sch
         *   `getObjectDependencies`: Builds a dependency tree (parents/lookups and children) using an iterative BFS approach and the Salesforce Composite API (batching 25 describes per call) to avoid N+1 callouts. Supports polymorphic fields.
         *   `describeSObject`: Helper to get field metadata (cached per transaction).
         *   `getCreateableFields`: Retrieves fields that can be written to in the remote org.
+        *   **`getRequiredFields`**: Retrieves mandatory fields (createable, !nillable, !defaulted) for an object to ensure safe inserts.
     *   **Query & Discovery (Current Org)**:
         *   `queryCurrent`: Runs SOQL against the local (hosting) org.
         *   `getAvailableObjectsCurrent`: Schema reflection for the local org.
@@ -53,6 +54,11 @@ Frontend UI for configuring connections, visualizing data dependencies, and exec
         *   **Reverse Orgs**: Utility to swap Source and Destination credentials/settings.
     *   **Object Selection**:
         *   Searchable dropdown for objects.
+        *   **SQL Editor**:
+            *   Parses SOQL input (`SELECT ... FROM ...`).
+            *   **Auto-configuration**: Automatically sets Object, Limit, and Plan constraints based on the query.
+            *   **Field Filtering**: Respects `SELECT` fields, ensuring only requested + required fields are exported.
+            *   **Nested Queries**: Automatically includes child relationships specified in subqueries.
         *   **Quick Filters**: Buttons to easily include/exclude Standard or Custom objects.
         *   **Configs**: "Max Depth" and "Excluded Objects" to refine the dependency tree.
     *   **Plan & Export**:
@@ -65,7 +71,7 @@ Frontend UI for configuring connections, visualizing data dependencies, and exec
             *   Step 3: Execution (Import Unmatched or Sync/Upsert).
             *   Step 4: Summary report.
         *   **Batch Execution**: Calls `startDataSeedingBatch` for large-scale imports and polls for status/reports.
-    *   **Key State**: `planRoot`, `exportOrder`, `finalExportQueries`, `importStatus`, `wizard`, `matchResultsByObject`.
+    *   **Key State**: `planRoot`, `exportOrder`, `finalExportQueries`, `importStatus`, `wizard`, `matchResultsByObject`, `soqlConstraints`.
 
 *   **`externalOrgQueryNode`** (Presentation/Recursive)
     *   **Responsibilities**:
@@ -86,9 +92,10 @@ Network security configuration to allow the Apex controller to make callouts.
 ## Data Flow
 1.  **Connect**: User authenticates Source and Destination (supporting Local<->Remote, Remote<->Remote, Local<->Local).
 2.  **Plan**: User selects a root object (e.g., `Account`). System builds a dependency tree (Account -> Parent User, Account -> Child Contacts).
+    *   *New*: User can paste a SOQL query to auto-configure this plan and restrict field selection.
 3.  **Refine**: User filters the tree (depth, exclusions, checkboxes).
 4.  **Export (Id Collection)**: System queries Source to find all related Record IDs required by the plan (Bootstrap -> Dependents).
-5.  **Finalize**: System constructs precise SOQL queries (filtered by IDs) to fetch only the necessary fields, checking for field level security/createability on Destination.
+5.  **Finalize**: System constructs precise SOQL queries (filtered by IDs) to fetch only the necessary fields (Requested U Required).
 6.  **Import (Batch)**:
     *   `DataSeedingBatch` fetches records from Source.
     *   Foreign Keys (Lookups) are remapped using the `idRemap` state.

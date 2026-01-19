@@ -29,7 +29,8 @@ public with sharing class ExternalOrgQueryController {
     public class DependencyNode {
         @AuraEnabled public String objectName;
         @AuraEnabled public String fieldName;
-        @AuraEnabled public String relationshipType; // 'Lookup' or 'MasterDetail'
+        @AuraEnabled public String relationshipName;
+        @AuraEnabled public String relationshipType; // 'Lookup' or 'MasterDetail' or 'Child'
         @AuraEnabled public List<DependencyNode> parents;
         @AuraEnabled public List<DependencyNode> children;
         @AuraEnabled public Boolean isRequired;
@@ -443,6 +444,7 @@ public with sharing class ExternalOrgQueryController {
                             System.debug('Adding dependency for: ' + objectName + ' -> ' + relationshipName + ' (' + parentObjectName + ')');
                             
                             DependencyNode parentNode = new DependencyNode(parentObjectName, fieldName);
+                            parentNode.relationshipName = relationshipName;
                             parentNode.relationshipType = 'Lookup';
                             // Required if non-nillable and not defaulted on create
                             parentNode.isRequired = (nillable == false) && (defaultedOnCreate != true);
@@ -480,10 +482,12 @@ public with sharing class ExternalOrgQueryController {
                     Map<String, Object> cr = (Map<String, Object>) crObj;
                     String childSObject = (String) cr.get('childSObject');
                     String childField = (String) cr.get('field');
+                    String relName = (String) cr.get('relationshipName');
                     if (String.isBlank(childSObject) || String.isBlank(childField)) continue;
                     if (excludedObjects.contains(childSObject)) continue;
 
                     DependencyNode childNode = new DependencyNode(childSObject, childField);
+                    childNode.relationshipName = relName;
                     childNode.relationshipType = 'Child';
                     rootNode.children.add(childNode);
                 }
@@ -521,6 +525,40 @@ public with sharing class ExternalOrgQueryController {
         Map<String, Object> untyped = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
         describeCache.put(objectName, untyped);
         return untyped;
+    }
+
+    @AuraEnabled(cacheable=false)
+    public static List<String> getRequiredFields(String sessionId, String instanceUrl, String objectName) {
+        try {
+            if (String.isBlank(sessionId) || String.isBlank(instanceUrl) || String.isBlank(objectName)) {
+                throw new CalloutException('SessionId, InstanceUrl, and ObjectName are required.');
+            }
+            
+            Map<String, Object> describe = describeSObject(sessionId, instanceUrl, objectName);
+            List<String> required = new List<String>();
+            if (describe != null) {
+                List<Object> fields = (List<Object>) describe.get('fields');
+                if (fields != null) {
+                    for (Object fieldObj : fields) {
+                        Map<String, Object> field = (Map<String, Object>) fieldObj;
+                        Boolean nillable = (Boolean) field.get('nillable');
+                        Boolean defaulted = (Boolean) field.get('defaultedOnCreate');
+                        Boolean createable = (Boolean) field.get('createable');
+                        String name = (String) field.get('name');
+                        
+                        // Required if not nillable, not defaulted, and is createable
+                        if (createable == true && nillable == false && defaulted != true) {
+                            required.add(name);
+                        }
+                    }
+                }
+            }
+            return required;
+        } catch (Exception e) {
+            System.debug('getRequiredFields Error: ' + e.getMessage());
+            // Return empty list on error to allow process to continue with best effort
+            return new List<String>();
+        }
     }
 
     @AuraEnabled(cacheable=false)
@@ -899,6 +937,7 @@ public with sharing class ExternalOrgQueryController {
                             String parentName = rTo[0].getDescribe().getName();
                             if (!excluded.contains(parentName)) {
                                 DependencyNode parentNode = new DependencyNode(parentName, fd.getName());
+                                parentNode.relationshipName = fd.getRelationshipName();
                                 parentNode.relationshipType = 'Lookup';
                                 parentNode.isRequired = (!fd.isNillable()) && (!fd.isDefaultedOnCreate());
 
@@ -931,9 +970,11 @@ public with sharing class ExternalOrgQueryController {
             for (Schema.ChildRelationship cr : d.getChildRelationships()) {
                 String childName = cr.getChildSObject() != null ? cr.getChildSObject().getDescribe().getName() : null;
                 String fieldName = cr.getField() != null ? cr.getField().getDescribe().getName() : null;
+                String relName = cr.getRelationshipName();
                 if (String.isBlank(childName) || String.isBlank(fieldName)) continue;
                 if (excluded.contains(childName)) continue;
                 DependencyNode childNode = new DependencyNode(childName, fieldName);
+                childNode.relationshipName = relName;
                 childNode.relationshipType = 'Child';
                 root.children.add(childNode);
             }
