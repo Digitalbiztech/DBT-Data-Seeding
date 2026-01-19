@@ -58,21 +58,29 @@ private class ExternalOrgQueryControllerTest2 {
 
     System.assertNotEquals(null, node, 'Root node should not be null');
     System.assertEquals('Account', node.objectName);
-    
+
     // Check parents - should be empty because AdvAcctForecastFactAdj is ignored
-    System.assertNotEquals(null, node.parents, 'Parents list should not be null');
-    System.assertEquals(0, node.parents.size(), 'Parents list should be empty (ignored object)');
+    System.assertNotEquals(
+      null,
+      node.parents,
+      'Parents list should not be null'
+    );
+    System.assertEquals(
+      0,
+      node.parents.size(),
+      'Parents list should be empty (ignored object)'
+    );
   }
 
   class MockDescribeWithIgnoredParent implements HttpCalloutMock {
     public HTTPResponse respond(HTTPRequest req) {
       HttpResponse res = new HttpResponse();
       res.setStatusCode(200);
-      
+
       if (req.getEndpoint().contains('composite/batch')) {
-         String body = '{ "results": [] }';
-         res.setBody(body);
-         return res;
+        String body = '{ "results": [] }';
+        res.setBody(body);
+        return res;
       }
 
       // Describe response with a lookup to an ignored object
@@ -80,7 +88,7 @@ private class ExternalOrgQueryControllerTest2 {
         '{' +
         '"name": "Account",' +
         '"fields": [' +
-           '{ "name": "IgnoredLink", "type": "reference", "relationshipName": "IgnoredRel", "referenceTo": ["AdvAcctForecastFactAdj"], "createable": true, "nillable": true, "defaultedOnCreate": false }' +
+        '{ "name": "IgnoredLink", "type": "reference", "relationshipName": "IgnoredRel", "referenceTo": ["AdvAcctForecastFactAdj"], "createable": true, "nillable": true, "defaultedOnCreate": false }' +
         '],' +
         '"childRelationships": []' +
         '}';

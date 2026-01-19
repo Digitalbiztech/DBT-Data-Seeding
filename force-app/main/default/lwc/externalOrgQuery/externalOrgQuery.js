@@ -2010,6 +2010,10 @@ export default class ExternalOrgQuery extends LightningElement {
         successes: [],
         errors: []
       };
+      const sourceBaseUrl = this.isSourceCurrentOrg
+        ? window.location.origin
+        : this.instanceUrl;
+
       if (Array.isArray(results)) {
         for (const r of results) {
           if (r && r.success) {
@@ -2024,7 +2028,9 @@ export default class ExternalOrgQuery extends LightningElement {
             report.errorCount += 1;
             report.errors.push({
               oldId: (r && r.oldId) || "",
-              errorMessage: (r && r.errorMessage) || "Unknown error"
+              errorMessage: (r && r.errorMessage) || "Unknown error",
+              sourceUrl:
+                sourceBaseUrl && r.oldId ? `${sourceBaseUrl}/${r.oldId}` : null
             });
           }
         }
@@ -2106,6 +2112,10 @@ export default class ExternalOrgQuery extends LightningElement {
             })
         );
 
+        const sourceBaseUrl = this.isSourceCurrentOrg
+          ? window.location.origin
+          : this.instanceUrl;
+
         if (Array.isArray(results)) {
           for (const r of results) {
             if (r && r.success) {
@@ -2122,7 +2132,11 @@ export default class ExternalOrgQuery extends LightningElement {
               report.errors.push({
                 oldId: (r && r.oldId) || "",
                 errorMessage: (r && r.errorMessage) || "Unknown error",
-                type: "Insert"
+                type: "Insert",
+                sourceUrl:
+                  sourceBaseUrl && r.oldId
+                    ? `${sourceBaseUrl}/${r.oldId}`
+                    : null
               });
             }
           }
@@ -2156,6 +2170,10 @@ export default class ExternalOrgQuery extends LightningElement {
         );
 
         if (Array.isArray(results)) {
+          const sourceBaseUrl = this.isSourceCurrentOrg
+            ? window.location.origin
+            : this.instanceUrl;
+
           results.forEach((r, idx) => {
             // Map back to Source ID for reporting consistency
             const sourceId = matched[idx].source.Id;
@@ -2173,7 +2191,11 @@ export default class ExternalOrgQuery extends LightningElement {
               report.errors.push({
                 oldId: sourceId,
                 errorMessage: (r && r.errorMessage) || "Unknown error",
-                type: "Update"
+                type: "Update",
+                sourceUrl:
+                  sourceBaseUrl && sourceId
+                    ? `${sourceBaseUrl}/${sourceId}`
+                    : null
               });
             }
           });

@@ -849,7 +849,18 @@
                             for:item="e"
                           >
                             <div key={e.oldId} class="slds-text-body_small">
-                              <strong>{e.oldId}:</strong> {e.errorMessage}
+                              <strong>
+                                <template if:true={e.sourceUrl}>
+                                  <lightning-formatted-url
+                                    value={e.sourceUrl}
+                                    label={e.oldId}
+                                    target="_blank"
+                                  ></lightning-formatted-url>
+                                </template>
+                                <template if:false={e.sourceUrl}>
+                                  {e.oldId}
+                                </template> </strong
+                              >: {e.errorMessage}
                               <span if:true={e.type}>({e.type})</span>
                             </div>
                           </template>
