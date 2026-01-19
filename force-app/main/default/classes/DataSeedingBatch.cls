@@ -32,6 +32,8 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
 
   // State: List of all logs
   private List<LogEntry> logs;
+  private Integer successLogCount = 0;
+  private static final Integer MAX_SUCCESS_LOGS = 1000;
 
   public DataSeedingBatch(
     String sourceSessionId,
@@ -50,6 +52,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     this.idRemap = new Map<String, Map<String, String>>();
     this.referenceFieldCache = planEdges;
     this.logs = new List<LogEntry>();
+    this.successLogCount = 0;
     this.currentTaskIndex = 0;
     this.currentNextRecordsUrl = null;
     this.chainHeadJobId = chainHeadJobId;
@@ -94,14 +97,6 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       err.status = 'Error';
       err.message = 'Critical Batch Error: ' + e.getMessage();
       this.logs.add(err);
-      // Abort or handle? For now, we might get stuck loop if we don't advance.
-      // But if we advance on error, we might miss data.
-      // Let's rely on finish() logic, but if error is unrecoverable, we might need to stop.
-      // However, exceptions in execute marks the batch as failed usually?
-      // Database.Batchable catches exceptions? No, unhandled exceptions mark the batch as Failed.
-      // But since we are stateful and chaining, if this job fails, the chain breaks.
-      // We should try to catch and perhaps advance to next object or abort.
-      // Let's re-throw to alert system, but maybe log first.
     }
   }
 
@@ -118,24 +113,19 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     );
 
     // 1. Fetch Records (Page)
-    ExternalOrgQueryController.QueryResultWrapper res;
+    ExternalOrgQueryService.QueryResultWrapper res;
     try {
       if (String.isNotBlank(this.currentNextRecordsUrl)) {
         if (
           String.isNotBlank(sourceSessionId) &&
           String.isNotBlank(sourceInstanceUrl)
         ) {
-          res = ExternalOrgQueryController.queryByUrl(
+          res = ExternalOrgQueryService.queryByUrl(
             sourceSessionId,
             sourceInstanceUrl,
             this.currentNextRecordsUrl
           );
         } else {
-          // Local query pagination not implemented with nextRecordsUrl standardly in this controller for local
-          // But local query usually returns all unless we implement Limit/Offset.
-          // For now, assuming Local Query returns everything in one go (QueryResultWrapper done=true).
-          // If local query was used, nextRecordsUrl should be null/handled.
-          // If we are here, it means we have a URL, so likely remote.
           throw new CalloutException(
             'Pagination for local query not supported yet via URL.'
           );
@@ -145,13 +135,13 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
           String.isNotBlank(sourceSessionId) &&
           String.isNotBlank(sourceInstanceUrl)
         ) {
-          res = ExternalOrgQueryController.queryWithSession(
+          res = ExternalOrgQueryService.queryWithSession(
             sourceSessionId,
             sourceInstanceUrl,
             soql
           );
         } else {
-          res = ExternalOrgQueryController.queryCurrent(soql);
+          res = ExternalOrgQueryService.queryCurrent(soql);
         }
       }
     } catch (Exception e) {
@@ -218,19 +208,19 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     }
 
     // 3. Insert/Create in Destination
-    List<ExternalOrgQueryController.InsertMapping> results;
+    List<ExternalOrgDmlService.InsertMapping> results;
     try {
       if (
         String.isNotBlank(destSessionId) && String.isNotBlank(destInstanceUrl)
       ) {
-        results = ExternalOrgQueryController.createRecordsRemote(
+        results = ExternalOrgDmlService.createRecordsRemote(
           destSessionId,
           destInstanceUrl,
           objectName,
           recordsToInsert
         );
       } else {
-        results = ExternalOrgQueryController.insertRecordsCurrent(
+        results = ExternalOrgDmlService.insertRecordsCurrent(
           objectName,
           recordsToInsert
         );
@@ -255,7 +245,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       : URL.getOrgDomainUrl().toExternalForm();
 
     for (Integer i = 0; i < results.size(); i++) {
-      ExternalOrgQueryController.InsertMapping mapping = results[i];
+      ExternalOrgDmlService.InsertMapping mapping = results[i];
       Map<String, Object> original = originalRows[i];
 
       LogEntry entry = new LogEntry();
@@ -267,15 +257,20 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       entry.sourceUrl = srcBaseUrl + '/' + mapping.oldId;
 
       if (mapping.success && mapping.newId != null) {
-        entry.destId = mapping.newId;
-        entry.status = 'Success';
-        entry.recordUrl = baseUrl + '/' + mapping.newId;
         objectMap.put(mapping.oldId, mapping.newId);
+
+        if (this.successLogCount < MAX_SUCCESS_LOGS) {
+          entry.destId = mapping.newId;
+          entry.status = 'Success';
+          entry.recordUrl = baseUrl + '/' + mapping.newId;
+          this.logs.add(entry);
+          this.successLogCount++;
+        }
       } else {
         entry.status = 'Error';
         entry.message = mapping.errorMessage;
+        this.logs.add(entry);
       }
-      this.logs.add(entry);
     }
   }
 

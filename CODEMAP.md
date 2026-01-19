@@ -1,109 +1,128 @@
-# Codebase Map: Salesforce Data Seeding Application
+# Data Seeding Algorithm & Execution Flow
 
-This document outlines the structure and responsibilities of the components in the Data Seed application.
+```mermaid
+sequenceDiagram
+    participant User
+    participant LWC as ExternalOrgQuery (LWC)
+    participant Auth as ExternalOrgAuthService
+    participant Desc as ExternalOrgDescribeService
+    participant Query as ExternalOrgQueryService
+    participant DML as ExternalOrgDmlService
+    participant Batch as DataSeedingBatch
+    participant Source as Source Org
+    participant Dest as Dest Org
 
-## Directory Structure: `force-app/main/default/`
+    Note over User, LWC: 1. Setup & Connection
+    User->>LWC: Enter Credentials
+    LWC->>Auth: testConnection()
+    Auth->>Source: SOAP Login
+    Source-->>Auth: SessionId + URL
+    Auth-->>LWC: Success
 
-### 1. Classes (`/classes`)
+    Note over User, LWC: 2. Object Selection & Plan
+    User->>LWC: Select Root Object (e.g. Account)
+    LWC->>Desc: getObjectDependencies(Account, Depth)
+    Desc->>Source: Describe API (Recursive)
+    Source-->>Desc: Schema (Fields, Relations)
+    Desc-->>LWC: Dependency Tree
+    LWC->>LWC: Render Plan Tree (User selects nodes)
 
-Backend logic handles authentication with external Salesforce organizations, schema discovery, and data operations.
+    Note over User, LWC: 3. Export (Collect IDs)
+    User->>LWC: Export (Limit X)
+    LWC->>LWC: Compute Topological Order (Children -> Parents)
+    loop For each Object in Order
+        LWC->>Query: queryWithSession(SELECT Id, RefFields...)
+        Query->>Source: SOQL
+        Source-->>Query: Rows
+        LWC->>LWC: Collect IDs & Parent IDs (Graph Traversal)
+    end
+    LWC->>LWC: Store IDs in State (lastQueriedIdSets)
 
-- **`ExternalOrgQueryController.cls`**
-  - **Authentication**:
-    - `login(username, password, environment)`: Performs a SOAP login to `login.salesforce.com` or `test.salesforce.com` to obtain a Session ID and Server URL.
-    - `testConnection`: Verifies credentials and returns connection details.
-  - **Query & Discovery (Remote)**:
-    - `loginAndQuery`: Wrapper to login and immediately run a SOQL query via REST API.
-    - `queryWithSession` / `queryByUrl`: Executes SOQL queries against a remote org using a provided Session ID.
-    - `getAvailableObjects`: Fetches a list of queryable sObjects from the remote org.
-    - `getObjectDependencies`: Builds a dependency tree (parents/lookups and children) using an iterative BFS approach and the Salesforce Composite API (batching 25 describes per call) to avoid N+1 callouts. Supports polymorphic fields.
-    - `describeSObject`: Helper to get field metadata (cached per transaction).
-    - `getCreateableFields`: Retrieves fields that can be written to in the remote org.
-    - **`getRequiredFields`**: Retrieves mandatory fields (createable, !nillable, !defaulted) for an object to ensure safe inserts.
-  - **Query & Discovery (Current Org)**:
-    - `queryCurrent`: Runs SOQL against the local (hosting) org.
-    - `getAvailableObjectsCurrent`: Schema reflection for the local org.
-    - `getObjectDependenciesCurrent`: Builds dependency tree for local objects.
-    - `getCreateableFieldsCurrent`: Schema reflection for createable fields in the local org.
-  - **Batch & Import Operations**:
-    - `startDataSeedingBatch`: Initiates the `DataSeedingBatch` job to transfer data.
-    - `getBatchJobStatus`: Polls the status of the background job.
-    - `getBatchReport`: Retrieves the JSON report (saved as `ContentVersion`) from a completed batch job.
-  - **Data Manipulation (DML)**:
-    - `insertRecordsCurrent` / `updateRecordsCurrent`: Inserts/Updates records in the local org.
-    - `createRecordsRemote` / `updateRecordsRemote`: Inserts/Updates records in a remote org via REST API (Composite Collections).
-  - **Matching Logic**:
-    - `findMatchingRecords`: efficient bulk matching of records between source and destination based on selected fields.
+    Note over User, LWC: 4. Final Export & Import
+    User->>LWC: Final Export
+    LWC->>LWC: Generate Tasks (SOQL per 200 IDs)
+    User->>LWC: Start Import
+    LWC->>Batch: startDataSeedingBatch(Tasks, PlanEdges)
+    Batch->>Batch: Queue Job
 
-- **`DataSeedingBatch.cls`**
-  - **Role**: Implements `Database.Batchable` and `Database.Stateful` to process seeding tasks asynchronously.
-  - **Logic**:
-    - Iterates through a list of ordered tasks (queries).
-    - Handles pagination via `nextRecordsUrl` (chaining batch jobs if needed).
-    - Remaps Parent IDs using a stateful `idRemap` map.
-    - Captures detailed execution logs.
-  - **Inner Classes**:
-    - `LogEntry`: Captures failure/success context (Object, Source ID, Dest ID, Message, Status).
-  - **Reporting**: Saves a JSON execution report as a `ContentVersion` file upon completion.
+    Note over Batch, Dest: 5. Batch Execution (Async)
+    loop For each Task (Object Batch)
+        Batch->>Query: queryWithSession/queryByUrl (Source)
+        Query->>Source: Fetch Records (Page 2000)
+        Source-->>Query: Records + NextUrl
 
-### 2. Lightning Web Components (`/lwc`)
+        Batch->>Batch: Remap Reference Fields (using idRemap)
 
-Frontend UI for configuring connections, visualizing data dependencies, and executing the transfer.
+        loop Chunked Insert (200 records)
+            Batch->>DML: createRecordsRemote(Chunk)
+            DML->>Dest: POST /composite/sobjects
+            Dest-->>DML: Success/Error + New IDs
+            Batch->>Batch: Update idRemap (OldId -> NewId)
+            Batch->>Batch: Log Results
+        end
 
-- **`externalOrgQuery`** (Main Container)
-  - **Connection Management**:
-    - Source/Destination can be "Current Org" or "External Org" (User/Pass).
-    - **Reverse Orgs**: Utility to swap Source and Destination credentials/settings.
-  - **Object Selection**:
-    - Searchable dropdown for objects.
-    - **SQL Editor**:
-      - Parses SOQL input (`SELECT ... FROM ...`).
-      - **Auto-configuration**: Automatically sets Object, Limit, and Plan constraints based on the query.
-      - **Field Filtering**: Respects `SELECT` fields, ensuring only requested + required fields are exported.
-      - **Nested Queries**: Automatically includes child relationships specified in subqueries.
-    - **Quick Filters**: Buttons to easily include/exclude Standard or Custom objects.
-    - **Configs**: "Max Depth" and "Excluded Objects" to refine the dependency tree.
-  - **Plan & Export**:
-    - **Export Plan**: Visualizes the dependency tree with togglable nodes/edges.
-    - **Execution**: Calculates topological sort order, bootstraps IDs, and generates final filtered SOQL queries.
-  - **Import / Matching Wizard**:
-    - **Check & Import**: A modal wizard for pre-flight checks.
-      - Step 1: Select matching fields per object. Warns on schema mismatches.
-      - Step 2: Comparison results (Matched vs Unmatched counts).
-      - Step 3: Execution (Import Unmatched or Sync/Upsert).
-      - Step 4: Summary report.
-    - **Batch Execution**: Calls `startDataSeedingBatch` for large-scale imports and polls for status/reports.
-  - **Key State**: `planRoot`, `exportOrder`, `finalExportQueries`, `importStatus`, `wizard`, `matchResultsByObject`, `soqlConstraints`.
+        opt Pagination
+            Batch->>Batch: Update NextUrl
+            Batch->>Batch: Chain (Reschedule Self)
+        end
+    end
 
-- **`externalOrgQueryNode`** (Presentation/Recursive)
-  - **Responsibilities**:
-    - Renders a single node (Object or Edge) in the dependency tree.
-    - Supports recursion to display children nodes.
-    - **Interaction**: Checkboxes for selection, expand/collapse toggles, drag-and-drop reordering.
-    - **Visuals**: Distinguishes between Objects and Edges; visual cues for locked/disabled states.
+    Batch->>Batch: Save Report (ContentVersion)
+    LWC->>Batch: Poll Status
+    Batch-->>LWC: Completed
+    LWC->>LWC: Display Report
+```
 
-### 3. Applications (`/applications`)
+## detailed Code Flow
 
-- **`Data_Seed.app-meta.xml`**: Defines the "Data Seed" Lightning App, exposing the `externalOrgQuery` LWC via a standard home page tab.
+### 1. Initialization
 
-### 4. Remote Site Settings (`/remoteSiteSettings`)
+- **LWC**: `externalOrgQuery` initializes.
+- **Auth**: User provides credentials. `ExternalOrgAuthService.login` performs SOAP login to get `sessionId` and `serverUrl`.
+- **Discovery**: `ExternalOrgDescribeService.getAvailableObjects` fetches SObjects.
 
-Network security configuration to allow the Apex controller to make callouts.
+### 2. Plan Generation
 
-- **`LoginSalesforce`**: Allow SOAP login to Production (`login.salesforce.com`).
-- **`TestSalesforce`**: Allow SOAP login to Sandbox (`test.salesforce.com`).
-- **`DBTD3Instance`**: Example specific instance allowlist.
+- **Selection**: User selects an object.
+- **Describe**: `ExternalOrgDescribeService.getObjectDependencies` recursively builds a tree.
+  - Uses `describeCache` to minimize callouts.
+  - Handles `maxDepth` and `excludedObjects`.
+  - Identifies `reference` fields (Lookups) and `childRelationships`.
+- **UI**: Tree is rendered. User unchecks/checks nodes.
+- **Topological Sort**: `computeExportOrder` in JS sorts objects so parents are processed before children.
 
-## Data Flow
+### 3. ID Collection (Bootstrap)
 
-1.  **Connect**: User authenticates Source and Destination (supporting Local<->Remote, Remote<->Remote, Local<->Local).
-2.  **Plan**: User selects a root object (e.g., `Account`). System builds a dependency tree (Account -> Parent User, Account -> Child Contacts).
-    - _New_: User can paste a SOQL query to auto-configure this plan and restrict field selection.
-3.  **Refine**: User filters the tree (depth, exclusions, checkboxes).
-4.  **Export (Id Collection)**: System queries Source to find all related Record IDs required by the plan (Bootstrap -> Dependents).
-5.  **Finalize**: System constructs precise SOQL queries (filtered by IDs) to fetch only the necessary fields (Requested U Required).
-6.  **Import (Batch)**:
-    - `DataSeedingBatch` fetches records from Source.
-    - Foreign Keys (Lookups) are remapped using the `idRemap` state.
-    - Records are inserted/created in Destination.
-    - Results are logged and saved to a file (`SeedingReport.json`).
+- **Goal**: Find relevant records to seed starting from the root object.
+- **Process**:
+  1. Query Root Object (Limit X).
+  2. Extract IDs and Reference IDs (Parent IDs).
+  3. Recursively Query Parents based on extracted IDs.
+  4. Store all collected IDs in `lastQueriedIdSets`.
+
+### 4. Batch Preparation
+
+- **Final Export**: LWC generates a list of "Tasks".
+  - Each Task = Object Name + SOQL query for specific IDs (WHERE Id IN (...)).
+  - Queries are chunked (e.g. 200 IDs per query) to keep SOQL length manageable.
+- **Start**: `DataSeedingService.startDataSeedingBatch` is called.
+  - Pass `taskList`: Ordered list of queries (Parents First).
+  - Pass `planEdges`: Map of Reference Fields for ID remapping.
+
+### 5. Batch Execution (`DataSeedingBatch`)
+
+- **State**: Maintains `idRemap` (Map<Object, Map<OldId, NewId>>).
+- **Execute**:
+  1. **Fetch**: `ExternalOrgQueryService` executes the task's SOQL against Source.
+     - Handles standard pagination (nextRecordsUrl).
+  2. **Remap**: Iterates fetched records.
+     - For each field in `planEdges`, checks if value exists in `idRemap`.
+     - Replaces Source ID with Destination ID.
+  3. **Insert**: `ExternalOrgDmlService` sends records to Destination.
+     - **CRITICAL**: Must chunk into 200 records for Composite API.
+  4. **Update Map**: On success, store `OldId -> NewId` in `idRemap`.
+  5. **Log**: Store success/error in `logs` list.
+- **Chaining**:
+  - If `nextRecordsUrl` exists -> Chain same task.
+  - Else -> Move to next task -> Chain.
+- **Finish**: Save `logs` as JSON in `ContentVersion`.

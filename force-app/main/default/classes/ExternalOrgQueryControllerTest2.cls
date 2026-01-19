@@ -47,7 +47,7 @@ private class ExternalOrgQueryControllerTest2 {
     Test.setMock(HttpCalloutMock.class, new MockDescribeWithIgnoredParent());
 
     Test.startTest();
-    ExternalOrgQueryController.DependencyNode node = ExternalOrgQueryController.getObjectDependencies(
+    ExternalOrgDescribeService.DependencyNode node = ExternalOrgQueryController.getObjectDependencies(
       'sess',
       'https://example.com',
       'Account',

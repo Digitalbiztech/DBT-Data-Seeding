@@ -8,7 +8,7 @@
 4.  **Schema Mismatch Warnings**: The tool now detects fields present in Source but missing in Destination during the export plan phase. A warning is displayed in the "Check & Import" wizard listing specific skipped fields, improving user trust.
 5.  **External-to-External Seeding**: Removed the limitation that required the destination to be the current org. Users can now seed data between two connected external organizations using REST API for the destination writes.
 6.  **Performance (Bulk Matching)**: Moved the heavy matching logic from the browser to the server. The `findMatchingRecords` Apex method now processes records in batches using optimized SOQL queries, resolving browser freeze issues with large datasets.
-7.  **Batch Apex Import**: Moved the heavy import process (Query -> Remap -> Insert) to a Batch Apex class. The UI now starts the batch job and polls for status, eliminating browser timeouts for large exports and efficiently managing heap/CPU limits.
+7.  **Architecture Refactoring (Service-Oriented)**: Decomposed the monolithic `ExternalOrgQueryController` into specialized service classes (`Auth`, `Query`, `Describe`, `DML`, `Seeding`). The controller now acts as a thin Facade, improving modularity, readability, and testability.
 
 ## Current Issues
 
@@ -56,4 +56,3 @@
 
 1.  **Remove Secrets**: Delete the hardcoded values in `externalOrgQuery.js`.
 2.  **Error Handling**: Enhance `insertRecordsCurrent` to return specific field errors rather than a generic message.
-3.  **Code Separation**: Extract the "Dependency Tree" logic in `ExternalOrgQueryController` into a dedicated service class (e.g., `DependencyService.cls`) to improve readability and testability.

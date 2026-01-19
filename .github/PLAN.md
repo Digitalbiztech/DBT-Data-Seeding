@@ -53,38 +53,19 @@ The following maps each stakeholder request to the concrete implementation deliv
   - ID collection runs in export order, batching IN clauses where needed. Maintains a per‑object `queriedIdSet` for dedupe and logs `ID_COLLECTION_RESULT` summaries.
   - Final Export builds per‑object SOQL using creatable fields (via Apex helpers) and emits `FINAL_EXPORT_SOQL` entries for execution/inspection.
 
-7. Routing and Current‑Org Support in Apex
+7. Service-Oriented Architecture and Facade Pattern
 
-- Request: All features should work when Source or Destination is the current org, without external sessions.
+- Request: Improve maintainability and modularity by decomposing the monolithic controller and separating concerns.
 - Implementation:
-  - Introduced current‑org endpoints for describes, queries, dependency discovery, creatable fields, and inserts.
-  - LWC routing helpers (`routeSourceCall`, `routeDestinationCall`) choose between current‑org and external‑org paths automatically.
-
-8. UI Layout and Clarity Pass
-
-- Request: Reduce clutter; keep key actions obvious.
-- Implementation:
-  - Header shows only Expand All / Collapse All.
-  - Controls for Bootstrap Limit, Export, and Final Export grouped below the tree.
-  - Removed noisy console logs; kept minimal essential diagnostics.
-
-9. Stability and Edge‑Case Fixes
-
-- Request: Avoid recursion blow‑ups or blocked actions in edge cases; support namespace variance.
-- Implementation:
-  - Cycle/recursion protection during dependency traversal by tracking visited objects per path.
-  - Validation accepts current‑org without requiring external session values.
-  - Case‑insensitive and namespace‑flexible matching for parsed SOQL object names.
-
-10. Post‑Final Export Hooks (Initial)
-
-- Request: Basic import flow and destination checks.
-- Implementation:
-  - When `finalExportQueries` are ready, show “Check Matching in Destination” (placeholder) and “Start Import.”
-  - Start Import (current‑org): executes bottom‑to‑top, remaps lookup references via accumulated old→new Id maps, and performs DML with `allOrNone=false`.
+  - Decomposed `ExternalOrgQueryController` into 5 domain-specific service classes: `ExternalOrgAuthService`, `ExternalOrgQueryService`, `ExternalOrgDescribeService`, `ExternalOrgDmlService`, and `DataSeedingService`.
+  - Refactored `ExternalOrgQueryController` into a lightweight **Facade** that delegates all `@AuraEnabled` calls to the respective services. This maintains backward compatibility with the LWC while isolating business logic.
+  - Refactored `DataSeedingBatch` to consume services directly, reducing coupling with the controller.
 
 ## Recent Activity (Chronological Log)
 
+- Refactored monolithic `ExternalOrgQueryController` into a Service-Oriented Architecture (Auth, Query, Describe, DML, and Seeding services).
+- Implemented the Facade pattern in the main controller to maintain LWC compatibility.
+- Updated `DataSeedingBatch` to utilize new service classes for query and DML operations.
 - Added dual‑pane credentials with reverse swap and current‑org toggles (mutually exclusive).
 - Gated SOQL until Source connected; added parser for object + LIMIT with namespace awareness.
 - Default exclusions and minimal‑tree fallback when dependencies absent.
