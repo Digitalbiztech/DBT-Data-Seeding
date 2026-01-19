@@ -1263,15 +1263,19 @@ export default class ExternalOrgQuery extends LightningElement {
     handleMatchingFieldChangeForObject = (event) => {
         const values = (event && event.detail && event.detail.value) || [];
         this.selectedMatchingFieldsByObject.set(this.currentWizardObject, Array.isArray(values) ? values : []);
+        // Force reactivity
+        this.selectedMatchingFieldsByObject = new Map(this.selectedMatchingFieldsByObject);
     };
     handleMatchingFieldChange = this.handleMatchingFieldChangeForObject;
 
     handleMatchingDeselectAll = () => {
         this.selectedMatchingFieldsByObject.set(this.currentWizardObject, []);
+        this.selectedMatchingFieldsByObject = new Map(this.selectedMatchingFieldsByObject);
     };
     handleMatchingSelectAll = () => {
         const opts = this.currentFieldOptions;
         this.selectedMatchingFieldsByObject.set(this.currentWizardObject, opts.map(o => o.value));
+        this.selectedMatchingFieldsByObject = new Map(this.selectedMatchingFieldsByObject);
     };
 
     handleRunMatchingCheck = async () => {
@@ -1344,6 +1348,7 @@ export default class ExternalOrgQuery extends LightningElement {
 
             const counts = { sourceCount: sourceRows.length, destCount: matchedCount, matchedCount };
             this.matchResultsByObject.set(objectName, { sourceRows, matchedRows, unmatchedRows, counts });
+            this.matchResultsByObject = new Map(this.matchResultsByObject);
             this.wizard = { ...this.wizard, step: 'results' };
         } catch (e) {
             const msg = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Matching check failed');
@@ -1400,6 +1405,7 @@ export default class ExternalOrgQuery extends LightningElement {
             counts.destCount = counts.matchedCount + report.successCount;
             counts.matchedCount = counts.destCount;
             this.matchResultsByObject.set(objectName, { ...res, report, counts });
+            this.matchResultsByObject = new Map(this.matchResultsByObject);
             this.wizard = { ...this.wizard, step: 'report' };
         } catch (e) {
             this.error = e && e.body && e.body.message ? e.body.message : (e && e.message ? e.message : 'Import failed');
@@ -1512,6 +1518,7 @@ export default class ExternalOrgQuery extends LightningElement {
             // But let's just track that we processed them.
             
             this.matchResultsByObject.set(objectName, { ...res, report, counts });
+            this.matchResultsByObject = new Map(this.matchResultsByObject);
             this.wizard = { ...this.wizard, step: 'report' };
 
         } catch (e) {
@@ -1591,9 +1598,12 @@ export default class ExternalOrgQuery extends LightningElement {
         // Build options
         const options = fieldsArr.map(f => ({ label: f, value: f }));
         this.matchingOptionsByObject.set(objectName, options);
+        this.matchingOptionsByObject = new Map(this.matchingOptionsByObject); // force update
+        
         if (!this.selectedMatchingFieldsByObject.has(objectName)) {
             const preset = fieldsArr.includes('Name') ? ['Name'] : [];
             this.selectedMatchingFieldsByObject.set(objectName, preset);
+            this.selectedMatchingFieldsByObject = new Map(this.selectedMatchingFieldsByObject); // force update
         }
     }
 
