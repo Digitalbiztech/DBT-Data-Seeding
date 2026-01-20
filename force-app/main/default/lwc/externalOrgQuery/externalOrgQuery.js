@@ -679,7 +679,8 @@ export default class ExternalOrgQuery extends LightningElement {
 
       const orderedTasks = [];
       // 'exportOrder' is topologically sorted (Parent -> Child).
-      for (const objName of this.exportOrder) {
+      const importOrder = [...this.exportOrder].reverse();
+      for (const objName of importOrder) {
         if (groupedQueries.has(objName)) {
           orderedTasks.push(...groupedQueries.get(objName));
         }
@@ -1873,7 +1874,9 @@ export default class ExternalOrgQuery extends LightningElement {
         .filter(Boolean)
     );
     // Sort objects according to exportOrder (Parent -> Child)
-    const objects = this.exportOrder.filter((obj) => uniqueObjects.has(obj));
+    const objects = this.exportOrder
+      .filter((obj) => uniqueObjects.has(obj))
+      .reverse();
     // Append any objects that were in finalQueries but somehow not in exportOrder (fallback)
     for (const obj of uniqueObjects) {
       if (!objects.includes(obj)) {
@@ -2701,29 +2704,32 @@ export default class ExternalOrgQuery extends LightningElement {
       );
 
       // Build Metadata for UI (using objectsWithIds which is in exportOrder)
-      const newFinalExportData = objectsWithIds.map((objectName) => {
-        const allMeta = metadataMap[objectName] || [];
-        const srcFields =
-          (sourceCreatableMap && sourceCreatableMap[objectName]) || [];
-        const dstFields =
-          (destCreatableMap && destCreatableMap[objectName]) || [];
-        const dstSet = new Set(dstFields);
-        const intersect = srcFields.filter(
-          (f) => f && f !== "Id" && f !== "OwnerId" && dstSet.has(f)
-        );
+      // Reversing to ensure Parent-First display in UI
+      const newFinalExportData = [...objectsWithIds]
+        .reverse()
+        .map((objectName) => {
+          const allMeta = metadataMap[objectName] || [];
+          const srcFields =
+            (sourceCreatableMap && sourceCreatableMap[objectName]) || [];
+          const dstFields =
+            (destCreatableMap && destCreatableMap[objectName]) || [];
+          const dstSet = new Set(dstFields);
+          const intersect = srcFields.filter(
+            (f) => f && f !== "Id" && f !== "OwnerId" && dstSet.has(f)
+          );
 
-        const intersectSet = new Set(intersect.map((f) => f.toLowerCase()));
+          const intersectSet = new Set(intersect.map((f) => f.toLowerCase()));
 
-        return {
-          objectName,
-          isExpanded: false,
-          fields: allMeta.map((m) => ({
-            ...m,
-            selected:
-              m.apiName === "Id" || intersectSet.has(m.apiName.toLowerCase())
-          }))
-        };
-      });
+          return {
+            objectName,
+            isExpanded: false,
+            fields: allMeta.map((m) => ({
+              ...m,
+              selected:
+                m.apiName === "Id" || intersectSet.has(m.apiName.toLowerCase())
+            }))
+          };
+        });
 
       // Iterate bottom-to-top of export order (reverse order) for queries
       const iterationOrder = objectsWithIds.slice().reverse();
