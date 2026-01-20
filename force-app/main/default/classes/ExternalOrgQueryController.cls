@@ -257,4 +257,31 @@ public with sharing class ExternalOrgQueryController {
   public static AsyncApexJob getBatchJobStatus(String jobId) {
     return DataSeedingService.getBatchJobStatus(jobId);
   }
+
+  @AuraEnabled(cacheable=false)
+  public static List<ExternalOrgDmlService.InsertMapping> importRecordsWithResolution(
+    String sourceSessionId,
+    String sourceInstanceUrl,
+    String destSessionId,
+    String destInstanceUrl,
+    String objectName,
+    List<Map<String, Object>> records
+  ) {
+    try {
+        List<Map<String, Object>> processed = DataSeedingService.preprocessRecords(
+            objectName, records, 
+            sourceSessionId, sourceInstanceUrl, 
+            destSessionId, destInstanceUrl
+        );
+
+        if (String.isNotBlank(destSessionId) && String.isNotBlank(destInstanceUrl)) {
+            return ExternalOrgDmlService.createRecordsRemote(destSessionId, destInstanceUrl, objectName, processed);
+        } else {
+            return ExternalOrgDmlService.insertRecordsCurrent(objectName, processed);
+        }
+    } catch (Exception e) {
+        System.debug('importRecordsWithResolution error: ' + e.getMessage());
+        throw new AuraHandledException(e.getMessage());
+    }
+  }
 }

@@ -20,6 +20,7 @@ import getBatchReport from "@salesforce/apex/ExternalOrgQueryController.getBatch
 import getRequiredFields from "@salesforce/apex/ExternalOrgQueryController.getRequiredFields";
 import getFieldMetadata from "@salesforce/apex/ExternalOrgQueryController.getFieldMetadata";
 import getFieldMetadataCurrent from "@salesforce/apex/ExternalOrgQueryController.getFieldMetadataCurrent";
+import importRecordsWithResolution from "@salesforce/apex/ExternalOrgQueryController.importRecordsWithResolution";
 
 const STANDARD_OBJECT_NAMES = new Set([
   "Account",
@@ -2043,16 +2044,21 @@ export default class ExternalOrgQuery extends LightningElement {
         }
         records.push(out);
       }
-      const results = await this.routeDestinationCall(
-        () => insertRecordsCurrent({ objectName, records }),
-        () =>
-          createRecordsRemote({
-            sessionId: this.destSessionId,
-            instanceUrl: this.destInstanceUrl,
-            objectName,
-            records
-          })
-      );
+      
+      const sourceSess = this.isSourceCurrentOrg ? null : this.sessionId;
+      const sourceUrl = this.isSourceCurrentOrg ? null : this.instanceUrl;
+      const destSess = this.isDestinationCurrentOrg ? null : this.destSessionId;
+      const destUrl = this.isDestinationCurrentOrg ? null : this.destInstanceUrl;
+
+      const results = await importRecordsWithResolution({
+          sourceSessionId: sourceSess,
+          sourceInstanceUrl: sourceUrl,
+          destSessionId: destSess,
+          destInstanceUrl: destUrl,
+          objectName,
+          records
+      });
+
       const report = {
         successCount: 0,
         errorCount: 0,
