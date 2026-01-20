@@ -51,6 +51,14 @@ public with sharing class ExternalOrgDmlService {
         for (String key : rec.keySet()) {
           if (key == 'Id')
             continue; // never attempt to set Id on insert
+
+          if (objectName == 'User') {
+            String low = key.toLowerCase();
+            if (low == 'userroleid' || low.contains('userlicense')) {
+              continue;
+            }
+          }
+
           try {
             sobj.put(key, rec.get(key));
           } catch (Exception e) {
@@ -75,7 +83,12 @@ public with sharing class ExternalOrgDmlService {
         } else {
           m.success = false;
           if (sr.getErrors() != null && sr.getErrors().size() > 0) {
-            m.errorMessage = sr.getErrors()[0].getMessage();
+            Database.Error err = sr.getErrors()[0];
+            String msg = err.getMessage();
+            if (err.getFields() != null && !err.getFields().isEmpty()) {
+              msg += ' (Fields: ' + String.join(err.getFields(), ', ') + ')';
+            }
+            m.errorMessage = msg;
           } else {
             m.errorMessage = 'Unknown DML error';
           }
@@ -128,6 +141,13 @@ public with sharing class ExternalOrgDmlService {
         inputNames.add(recName);
 
         for (String key : rec.keySet()) {
+          if (objectName == 'User') {
+            String low = key.toLowerCase();
+            if (low == 'userroleid' || low.contains('userlicense')) {
+              continue;
+            }
+          }
+
           try {
             sobj.put(key, rec.get(key));
           } catch (Exception e) {
@@ -157,7 +177,12 @@ public with sharing class ExternalOrgDmlService {
         } else {
           m.success = false;
           if (sr.getErrors() != null && sr.getErrors().size() > 0) {
-            m.errorMessage = sr.getErrors()[0].getMessage();
+            Database.Error err = sr.getErrors()[0];
+            String msg = err.getMessage();
+            if (err.getFields() != null && !err.getFields().isEmpty()) {
+              msg += ' (Fields: ' + String.join(err.getFields(), ', ') + ')';
+            }
+            m.errorMessage = msg;
           } else {
             m.errorMessage = 'Unknown DML error';
           }
@@ -265,6 +290,19 @@ public with sharing class ExternalOrgDmlService {
           rec.remove('Id');
         }
 
+        if (objectName == 'User') {
+          List<String> toRemove = new List<String>();
+          for (String key : rec.keySet()) {
+            String low = key.toLowerCase();
+            if (low == 'userroleid' || low.contains('userlicense')) {
+              toRemove.add(key);
+            }
+          }
+          for (String key : toRemove) {
+            rec.remove(key);
+          }
+        }
+
         Map<String, String> attributes = new Map<String, String>{
           'type' => objectName
         };
@@ -304,7 +342,12 @@ public with sharing class ExternalOrgDmlService {
             List<Object> errors = (List<Object>) result.get('errors');
             if (errors != null && !errors.isEmpty()) {
               Map<String, Object> err = (Map<String, Object>) errors[0];
-              m.errorMessage = (String) err.get('message');
+              String msg = (String) err.get('message');
+              List<Object> fields = (List<Object>) err.get('fields');
+              if (fields != null && !fields.isEmpty()) {
+                msg += ' (Fields: ' + String.join(fields, ', ') + ')';
+              }
+              m.errorMessage = msg;
             } else {
               m.errorMessage = 'Unknown remote error';
             }

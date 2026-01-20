@@ -189,6 +189,15 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       for (String field : row.keySet()) {
         if (field == 'Id' || field == 'attributes')
           continue;
+
+        // Skip specific fields for User object as requested
+        if (objectName == 'User') {
+          String f = field.toLowerCase();
+          if (f == 'userroleid' || f.contains('userlicense')) {
+            continue;
+          }
+        }
+
         Object val = row.get(field);
 
         // Remap if it is a reference field

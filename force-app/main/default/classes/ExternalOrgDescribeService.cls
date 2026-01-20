@@ -616,6 +616,17 @@ public with sharing class ExternalOrgDescribeService {
           }
         }
         creatableFields.sort();
+        if (objectName == 'User') {
+          List<String> filtered = new List<String>();
+          for (String f : creatableFields) {
+            String low = f.toLowerCase();
+            if (low == 'userroleid' || low.contains('userlicense')) {
+              continue;
+            }
+            filtered.add(f);
+          }
+          creatableFields = filtered;
+        }
         result.put(objectName, creatableFields);
       }
       return result;
@@ -803,6 +814,17 @@ public with sharing class ExternalOrgDescribeService {
         }
       }
       fields.sort();
+      if (name == 'User') {
+        List<String> filtered = new List<String>();
+        for (String f : fields) {
+          String low = f.toLowerCase();
+          if (low == 'userroleid' || low.contains('userlicense')) {
+            continue;
+          }
+          filtered.add(f);
+        }
+        fields = filtered;
+      }
       out.put(name, fields);
     }
     return out;
