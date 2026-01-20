@@ -601,15 +601,15 @@ public with sharing class ExternalOrgDescribeService {
             Boolean defaultedOnCreate = (Boolean) field.get(
               'defaultedOnCreate'
             );
+            String fieldName = (String) field.get('name');
             if (
               createable == null ||
               !createable ||
-              defaultedOnCreate == null ||
-              defaultedOnCreate
+              ((defaultedOnCreate == null || defaultedOnCreate) &&
+              fieldName != 'IsActive')
             ) {
               continue;
             }
-            String fieldName = (String) field.get('name');
             if (String.isNotBlank(fieldName)) {
               creatableFields.add(fieldName);
             }
@@ -620,7 +620,12 @@ public with sharing class ExternalOrgDescribeService {
           List<String> filtered = new List<String>();
           for (String f : creatableFields) {
             String low = f.toLowerCase();
-            if (low == 'userroleid' || low.contains('userlicense')) {
+            if (
+              low == 'userroleid' ||
+              low.contains('userlicense') ||
+              low.startsWith('userpreferences') ||
+              low.startsWith('userpermissions')
+            ) {
               continue;
             }
             filtered.add(f);
@@ -809,7 +814,10 @@ public with sharing class ExternalOrgDescribeService {
       List<String> fields = new List<String>();
       for (Schema.SObjectField f : d.fields.getMap().values()) {
         Schema.DescribeFieldResult fd = f.getDescribe();
-        if (fd.isCreateable() && !fd.isDefaultedOnCreate()) {
+        if (
+          fd.isCreateable() &&
+          (!fd.isDefaultedOnCreate() || fd.getName() == 'IsActive')
+        ) {
           fields.add(fd.getName());
         }
       }
@@ -818,7 +826,12 @@ public with sharing class ExternalOrgDescribeService {
         List<String> filtered = new List<String>();
         for (String f : fields) {
           String low = f.toLowerCase();
-          if (low == 'userroleid' || low.contains('userlicense')) {
+          if (
+            low == 'userroleid' ||
+            low.contains('userlicense') ||
+            low.startsWith('userpreferences') ||
+            low.startsWith('userpermissions')
+          ) {
             continue;
           }
           filtered.add(f);
