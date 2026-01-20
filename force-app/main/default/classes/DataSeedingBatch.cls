@@ -28,6 +28,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     public String message;
     public String recordUrl;
     public String sourceUrl;
+    public String rawError;
   }
 
   // State: List of all logs
@@ -176,6 +177,13 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       ? this.referenceFieldCache.get(objectName)
       : new Map<String, String>();
 
+    if (objectName == 'User') {
+      resolveUserProfiles(rows);
+      if (!refFields.containsKey('ProfileId')) {
+        refFields.put('ProfileId', 'Profile');
+      }
+    }
+
     List<Map<String, Object>> originalRows = new List<Map<String, Object>>();
 
     for (Map<String, Object> row : rows) {
@@ -278,6 +286,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       } else {
         entry.status = 'Error';
         entry.message = mapping.errorMessage;
+        entry.rawError = mapping.rawError;
         this.logs.add(entry);
       }
     }
@@ -341,6 +350,109 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       System.debug('Saved execution report: ' + cv.Id);
     } catch (Exception e) {
       System.debug('Failed to save batch report: ' + e.getMessage());
+    }
+  }
+
+  private void resolveUserProfiles(List<Map<String, Object>> rows) {
+    Set<String> sourceProfileIds = new Set<String>();
+    for (Map<String, Object> row : rows) {
+      if (
+        row != null &&
+        row.containsKey('ProfileId') &&
+        row.get('ProfileId') != null
+      ) {
+        sourceProfileIds.add((String) row.get('ProfileId'));
+      }
+    }
+    if (sourceProfileIds.isEmpty())
+      return;
+
+    if (!idRemap.containsKey('Profile')) {
+      idRemap.put('Profile', new Map<String, String>());
+    }
+    Map<String, String> profileMap = idRemap.get('Profile');
+
+    Set<String> toResolve = new Set<String>();
+    for (String pid : sourceProfileIds) {
+      if (!profileMap.containsKey(pid)) {
+        toResolve.add(pid);
+      }
+    }
+    if (toResolve.isEmpty())
+      return;
+
+    List<String> pidList = new List<String>();
+    for (String pid : toResolve) {
+      pidList.add('\'' + String.escapeSingleQuotes(pid) + '\'');
+    }
+    String sourceSoql =
+      'SELECT Id, Name FROM Profile WHERE Id IN (' +
+      String.join(pidList, ',') +
+      ')';
+
+    ExternalOrgQueryService.QueryResultWrapper sourceRes;
+    try {
+      if (
+        String.isNotBlank(sourceSessionId) &&
+        String.isNotBlank(sourceInstanceUrl)
+      ) {
+        sourceRes = ExternalOrgQueryService.queryWithSession(
+          sourceSessionId,
+          sourceInstanceUrl,
+          sourceSoql
+        );
+      } else {
+        sourceRes = ExternalOrgQueryService.queryCurrent(sourceSoql);
+      }
+    } catch (Exception e) {
+      System.debug('Error querying source profiles: ' + e.getMessage());
+      return;
+    }
+
+    if (sourceRes == null || sourceRes.rows == null || sourceRes.rows.isEmpty())
+      return;
+
+    Map<String, String> nameToSourceId = new Map<String, String>();
+    List<String> names = new List<String>();
+    for (Map<String, Object> r : sourceRes.rows) {
+      String name = (String) r.get('Name');
+      String id = (String) r.get('Id');
+      nameToSourceId.put(name, id);
+      names.add('\'' + String.escapeSingleQuotes(name) + '\'');
+    }
+
+    String destSoql =
+      'SELECT Id, Name FROM Profile WHERE Name IN (' +
+      String.join(names, ',') +
+      ')';
+
+    ExternalOrgQueryService.QueryResultWrapper destRes;
+    try {
+      if (
+        String.isNotBlank(destSessionId) && String.isNotBlank(destInstanceUrl)
+      ) {
+        destRes = ExternalOrgQueryService.queryWithSession(
+          destSessionId,
+          destInstanceUrl,
+          destSoql
+        );
+      } else {
+        destRes = ExternalOrgQueryService.queryCurrent(destSoql);
+      }
+    } catch (Exception e) {
+      System.debug('Error querying dest profiles: ' + e.getMessage());
+      return;
+    }
+
+    if (destRes == null || destRes.rows == null)
+      return;
+
+    for (Map<String, Object> r : destRes.rows) {
+      String name = (String) r.get('Name');
+      String destId = (String) r.get('Id');
+      if (nameToSourceId.containsKey(name)) {
+        profileMap.put(nameToSourceId.get(name), destId);
+      }
     }
   }
 }
