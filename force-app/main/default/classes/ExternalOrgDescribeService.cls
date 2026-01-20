@@ -924,4 +924,40 @@ public with sharing class ExternalOrgDescribeService {
     }
     return result;
   }
+
+  public static Map<String, String> getReferenceFields(
+    String sessionId,
+    String instanceUrl,
+    String objectName
+  ) {
+    Map<String, String> refMap = new Map<String, String>();
+    try {
+      if (String.isBlank(objectName)) return refMap;
+      
+      Map<String, Object> untyped = describeSObject(sessionId, instanceUrl, objectName);
+      if (untyped == null) return refMap;
+
+      List<Object> fields = (List<Object>) untyped.get('fields');
+      if (fields != null) {
+        for (Object fieldObj : fields) {
+          Map<String, Object> field = (Map<String, Object>) fieldObj;
+          String fieldType = (String) field.get('type');
+          List<Object> referenceTo = (List<Object>) field.get('referenceTo');
+          Boolean createable = (Boolean) field.get('createable');
+          
+          if (fieldType == 'reference' && referenceTo != null && !referenceTo.isEmpty() && createable == true) {
+             String fname = (String) field.get('name');
+             // Take the first reference type (polymorphic fields might have multiple, usually we care about the primary or handle broadly)
+             // For simplicity, taking the first one is standard for simple lookups. 
+             // Polymorphic handling might require more complex logic later.
+             String parent = (String) referenceTo[0]; 
+             refMap.put(fname, parent);
+          }
+        }
+      }
+    } catch (Exception e) {
+      System.debug('getReferenceFields Error: ' + e.getMessage());
+    }
+    return refMap;
+  }
 }

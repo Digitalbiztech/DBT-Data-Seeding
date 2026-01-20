@@ -185,6 +185,33 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       ? this.referenceFieldCache.get(objectName)
       : new Map<String, String>();
 
+    // DYNAMICALLY DISCOVER REFERENCES
+    // This ensures we catch standard lookups (AccountId, OwnerId, etc.) even if the user excluded the parent object from the Plan.
+    try {
+        Map<String, String> discoveredRefs;
+        if (String.isNotBlank(sourceSessionId) && String.isNotBlank(sourceInstanceUrl)) {
+             discoveredRefs = ExternalOrgDescribeService.getReferenceFields(sourceSessionId, sourceInstanceUrl, objectName);
+        } else {
+             // Fallback: use local describe if source is current
+             // For now, let's just skip or implement local describe if needed. 
+             // But usually we have source session or we are running local-to-remote.
+             // If running local-to-local, we can use Schema.getGlobalDescribe().
+             if (String.isBlank(sourceSessionId)) { // Local source
+                 discoveredRefs = getLocalReferenceFields(objectName);
+             }
+        }
+        
+        if (discoveredRefs != null) {
+            for (String f : discoveredRefs.keySet()) {
+                if (!refFields.containsKey(f)) {
+                    refFields.put(f, discoveredRefs.get(f));
+                }
+            }
+        }
+    } catch (Exception e) {
+        System.debug('Failed to discover dynamic references: ' + e.getMessage());
+    }
+
     if (objectName == 'User') {
       resolveUserProfiles(rows);
       if (!refFields.containsKey('ProfileId')) {
@@ -646,5 +673,27 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
         }
       }
     }
+  }
+  
+  private Map<String, String> getLocalReferenceFields(String objectName) {
+      Map<String, String> refs = new Map<String, String>();
+      try {
+          Schema.SObjectType t = Schema.getGlobalDescribe().get(objectName);
+          if (t != null) {
+              Schema.DescribeSObjectResult d = t.getDescribe();
+              for (Schema.SObjectField f : d.fields.getMap().values()) {
+                  Schema.DescribeFieldResult fd = f.getDescribe();
+                  if (fd.getType() == Schema.DisplayType.REFERENCE) {
+                      List<Schema.SObjectType> rTo = fd.getReferenceTo();
+                      if (rTo != null && !rTo.isEmpty()) {
+                          refs.put(fd.getName(), rTo[0].getDescribe().getName());
+                      }
+                  }
+              }
+          }
+      } catch (Exception e) {
+          System.debug('Error getting local refs: ' + e.getMessage());
+      }
+      return refs;
   }
 }
