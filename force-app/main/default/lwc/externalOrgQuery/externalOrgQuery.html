@@ -348,8 +348,105 @@
             ></lightning-button>
           </div>
         </div>
+
+        <!-- Final Export Field Selection UI -->
+        <template if:true={hasFinalExportData}>
+          <div class="slds-m-top_medium slds-box slds-theme_default">
+            <h3 class="slds-text-heading_small slds-m-bottom_small">
+              Final Export Details (Field Selection)
+            </h3>
+            <template for:each={finalExportDataUI} for:item="obj">
+              <div key={obj.objectName} class="slds-box slds-m-bottom_x-small">
+                <div
+                  class="slds-grid slds-grid_vertical-align-center"
+                  onclick={handleToggleObjectFields}
+                  data-object={obj.objectName}
+                  style="cursor: pointer"
+                >
+                  <lightning-icon
+                    icon-name={obj.iconName}
+                    size="small"
+                    class="slds-m-right_small"
+                  ></lightning-icon>
+                  <strong>{obj.objectName}</strong>
+                  <span class="slds-m-left_auto">
+                    <lightning-icon
+                      icon-name={obj.toggleIcon}
+                      size="x-small"
+                    ></lightning-icon>
+                  </span>
+                </div>
+                <template if:true={obj.isExpanded}>
+                  <div class="slds-m-top_small field-selection-table-container">
+                    <table
+                      class="slds-table slds-table_bordered slds-table_cell-buffer slds-table_fixed-layout"
+                    >
+                      <thead>
+                        <tr class="slds-line-height_reset">
+                          <th scope="col" style="width: 3.25rem">
+                            <div class="slds-truncate" title="Select">Select</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate" title="Label">Label</div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate" title="API Name">
+                              API Name
+                            </div>
+                          </th>
+                          <th scope="col">
+                            <div class="slds-truncate" title="Type">Type</div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template for:each={obj.fields} for:item="f">
+                          <tr key={f.apiName} class="slds-hint-parent">
+                            <td class="slds-cell-shrink">
+                              <lightning-input
+                                type="checkbox"
+                                variant="label-hidden"
+                                checked={f.selected}
+                                data-object={obj.objectName}
+                                data-field={f.apiName}
+                                onchange={handleFieldCheckboxChange}
+                              ></lightning-input>
+                            </td>
+                            <td>
+                              <div class="slds-truncate" title={f.label}>
+                                {f.label}
+                              </div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate" title={f.apiName}>
+                                {f.apiName}
+                              </div>
+                            </td>
+                            <td>
+                              <div class="slds-truncate" title={f.type}>
+                                {f.type}
+                              </div>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <div class="slds-m-top_small slds-align_absolute-center">
+              <lightning-button
+                variant="brand"
+                label="Initialize Import"
+                onclick={handleInitializeImport}
+              ></lightning-button>
+            </div>
+          </div>
+        </template>
+
         <!-- Post-final-export actions -->
-        <template if:true={hasFinalQueries}>
+        <template if:true={showImportActions}>
           <div
             class="slds-grid slds-wrap slds-gutters slds-m-top_small plan-controls"
           >

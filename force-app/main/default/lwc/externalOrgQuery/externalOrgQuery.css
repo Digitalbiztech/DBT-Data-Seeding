@@ -124,3 +124,10 @@ pre {
 .record-text-black {
   color: black !important;
 }
+
+.field-selection-table-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #dddbda;
+  border-radius: 0.25rem;
+}

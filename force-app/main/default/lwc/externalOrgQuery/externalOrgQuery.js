@@ -1,4 +1,5 @@
 import { LightningElement, track } from "lwc";
+import { ShowToastEvent } from "lightning/platformShowToastEvent";
 import testConnection from "@salesforce/apex/ExternalOrgQueryController.testConnection";
 import getAvailableObjects from "@salesforce/apex/ExternalOrgQueryController.getAvailableObjects";
 import getObjectDependencies from "@salesforce/apex/ExternalOrgQueryController.getObjectDependencies";
@@ -17,6 +18,8 @@ import startDataSeedingBatch from "@salesforce/apex/ExternalOrgQueryController.s
 import getBatchJobStatus from "@salesforce/apex/ExternalOrgQueryController.getBatchJobStatus";
 import getBatchReport from "@salesforce/apex/ExternalOrgQueryController.getBatchReport";
 import getRequiredFields from "@salesforce/apex/ExternalOrgQueryController.getRequiredFields";
+import getFieldMetadata from "@salesforce/apex/ExternalOrgQueryController.getFieldMetadata";
+import getFieldMetadataCurrent from "@salesforce/apex/ExternalOrgQueryController.getFieldMetadataCurrent";
 
 const STANDARD_OBJECT_NAMES = new Set([
   "Account",
@@ -112,6 +115,8 @@ export default class ExternalOrgQuery extends LightningElement {
   @track exportOrder = [];
   @track lastQueriedIdSnapshot;
   @track finalExportQueries = [];
+  @track finalExportData = [];
+  @track isImportInitialized = false;
   @track exportStats;
   @track effectiveDepth;
 
@@ -211,6 +216,10 @@ export default class ExternalOrgQuery extends LightningElement {
 
   // Connection state + button gating
   get isSourceConnected() {
+    return this.isSourceConnectedOrCurrent();
+  }
+
+  isSourceConnectedOrCurrent() {
     return this.isSourceCurrentOrg || !!(this.sessionId && this.instanceUrl);
   }
 
@@ -224,7 +233,7 @@ export default class ExternalOrgQuery extends LightningElement {
   get isRunDisabled() {
     // Disable until source connected, SOQL present, and object picklist loaded
     return (
-      !this.isSourceConnected ||
+      !this.isSourceConnectedOrCurrent() ||
       !this.soql ||
       !this.showObjectPicker ||
       this.isLoading
@@ -569,10 +578,7 @@ export default class ExternalOrgQuery extends LightningElement {
   }
 
   get isFinalExportDisabled() {
-    const destConnected =
-      this.isDestinationCurrentOrg ||
-      (!!this.destSessionId && !!this.destInstanceUrl);
-    return this.isExportDisabled || !this.hasCollectedIds || !destConnected;
+    return this.isExportDisabled || !this.hasCollectedIds;
   }
 
   get hasFinalQueries() {
@@ -580,6 +586,10 @@ export default class ExternalOrgQuery extends LightningElement {
       Array.isArray(this.finalExportQueries) &&
       this.finalExportQueries.length > 0
     );
+  }
+
+  get showImportActions() {
+    return this.hasFinalQueries && this.isImportInitialized;
   }
 
   get isStartImportDisabled() {
@@ -878,11 +888,10 @@ export default class ExternalOrgQuery extends LightningElement {
 
       node.children.forEach((child) => {
         if (child.type === "edge") {
-          const relName = (
-            child.relationshipName ||
-            child.fieldName ||
-            ""
-          ).toLowerCase();
+          const relName =
+            (child.relationshipName ||
+             child.fieldName ||
+             "").toLowerCase();
           const isSubquery =
             child.relationshipType === "Child" && subqueries.has(relName);
           const isRequested = requestedRels.has(relName);
@@ -1050,6 +1059,19 @@ export default class ExternalOrgQuery extends LightningElement {
     this.exportOrder = order;
     this.planEdges = edgesByObject;
     this.planRoot = this.buildPlanTree(rootObject, order, edgesByObject);
+
+    // Log graph structure
+    const graphLog = {};
+    edgesByObject.forEach((edges, obj) => {
+      graphLog[obj] = edges.map(
+        (e) => `${e.fieldName} -> ${e.target} (${e.relationshipType})`
+      );
+    });
+    console.log(
+      "Dependency Graph (Edges):",
+      JSON.stringify(graphLog, null, 2)
+    );
+
     // Calculate effective depth from graph (initially all selected)
     const computedDepth = this.calculateSelectedDepth(this.planRoot);
     this.effectiveDepth = computedDepth;
@@ -2535,7 +2557,7 @@ export default class ExternalOrgQuery extends LightningElement {
           continue;
         }
         const where = cleaned
-          .map((id) => `'${id.replace(/'/g, "\'")}'`)
+          .map((id) => `'${id.replace(/'/g, "'")}'`)
           .join(",");
         const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
         await this.processQueryRows(objectName, soql, edges, queried, pending);
@@ -2601,6 +2623,7 @@ export default class ExternalOrgQuery extends LightningElement {
     }
     return out;
   }
+
   async handleFinalExport() {
     // Require source connectivity for schema discovery if not current org
     if (!this.ensureSourceConnected("Please test connection first")) {
@@ -2609,9 +2632,16 @@ export default class ExternalOrgQuery extends LightningElement {
     // Destination must be connected (either as current org or tested external session)
     if (
       !this.ensureDestinationConnected(
-        "Please test destination connection first"
+        "Please provide details for Destination Org"
       )
     ) {
+      this.dispatchEvent(
+        new ShowToastEvent({
+          title: "Destination Required",
+          message: "Please provide details for Destination Org",
+          variant: "info"
+        })
+      );
       return;
     }
     if (!this.lastQueriedIdSets || this.lastQueriedIdSets.size === 0) {
@@ -2654,7 +2684,43 @@ export default class ExternalOrgQuery extends LightningElement {
           })
       );
 
-      // Iterate bottom-to-top of export order (reverse order)
+      // FETCH METADATA for UI
+      const metadataMap = await this.routeSourceCall(
+        () => getFieldMetadataCurrent({ objectNames: objectsWithIds }),
+        () =>
+          getFieldMetadata({
+            sessionId: this.sessionId,
+            instanceUrl: this.instanceUrl,
+            objectNames: objectsWithIds
+          })
+      );
+
+      // Build Metadata for UI (using objectsWithIds which is in exportOrder)
+      const newFinalExportData = objectsWithIds.map((objectName) => {
+        const allMeta = metadataMap[objectName] || [];
+        const srcFields =
+          (sourceCreatableMap && sourceCreatableMap[objectName]) || [];
+        const dstFields =
+          (destCreatableMap && destCreatableMap[objectName]) || [];
+        const dstSet = new Set(dstFields);
+        const intersect = srcFields.filter(
+          (f) => f && f !== "Id" && f !== "OwnerId" && dstSet.has(f)
+        );
+
+        const intersectSet = new Set(intersect.map((f) => f.toLowerCase()));
+
+        return {
+          objectName,
+          isExpanded: false,
+          fields: allMeta.map((m) => ({
+            ...m,
+            selected:
+              m.apiName === "Id" || intersectSet.has(m.apiName.toLowerCase())
+          }))
+        };
+      });
+
+      // Iterate bottom-to-top of export order (reverse order) for queries
       const iterationOrder = objectsWithIds.slice().reverse();
       const queries = [];
       for (const objectName of iterationOrder) {
@@ -2692,7 +2758,7 @@ export default class ExternalOrgQuery extends LightningElement {
           let requiredFields = [];
           try {
             requiredFields = await this.routeDestinationCall(
-              () => [], // Local required fields logic not strictly needed if we assume standard valid fields or could implement similarly
+              () => [],
               () =>
                 getRequiredFields({
                   sessionId: this.destSessionId,
@@ -2707,14 +2773,13 @@ export default class ExternalOrgQuery extends LightningElement {
             (requiredFields || []).map((f) => f.toLowerCase())
           );
 
-          // Filter intersect: keep if requested OR required
           intersect = intersect.filter((f) => {
             const flow = f.toLowerCase();
             return requested.has(flow) || requiredSet.has(flow);
           });
         }
 
-        // Filter out deselected relationship fields based on the plan (DEFINITIVE FILTER)
+        // Filter out deselected relationship fields based on the plan
         const allEdgesForObj = this.planEdges.get(objectName) || [];
         const selectedEdgesForObj = selectedEdges.get(objectName) || [];
         const selectedFieldNames = new Set(
@@ -2723,14 +2788,13 @@ export default class ExternalOrgQuery extends LightningElement {
 
         intersect = intersect.filter((f) => {
           const fieldLow = (f || "").toLowerCase();
-          // If this field is a relationship field in our plan, it must be selected
           const planEdge = allEdgesForObj.find(
             (e) => (e.fieldName || "").toLowerCase() === fieldLow
           );
           if (planEdge) {
             return selectedFieldNames.has(fieldLow);
           }
-          return true; // Not a relationship field in the plan, keep it
+          return true;
         });
 
         const uniqueFields = ["Id", ...intersect];
@@ -2739,7 +2803,7 @@ export default class ExternalOrgQuery extends LightningElement {
         for (const batch of this.chunkArray(ids, 200)) {
           const where = batch
             .filter(Boolean)
-            .map((id) => `'${id.replace(/'/g, "\'")}'`)
+            .map((id) => `'${id.replace(/'/g, "'")}'`)
             .join(",");
           if (!where) continue;
           const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
@@ -2752,7 +2816,9 @@ export default class ExternalOrgQuery extends LightningElement {
         }
       }
 
+      this.finalExportData = newFinalExportData;
       this.finalExportQueries = queries;
+      this.isImportInitialized = false;
       // Reset import status/reporting when final queries change
       this.importStatus = {
         inProgress: false,
@@ -2786,6 +2852,87 @@ export default class ExternalOrgQuery extends LightningElement {
 
     console.log("Check Matching in Destination clicked");
   };
+
+  get hasFinalExportData() {
+    return this.finalExportData && this.finalExportData.length > 0;
+  }
+
+  get finalExportDataUI() {
+    return (this.finalExportData || []).map((obj) => ({
+      ...obj,
+      toggleIcon: obj.isExpanded ? "utility:chevrondown" : "utility:chevronright",
+      iconName: obj.objectName.endsWith("__c")
+        ? "standard:custom"
+        : "standard:record"
+    }));
+  }
+
+  handleToggleObjectFields(event) {
+    const objName = event.currentTarget.dataset.object;
+    this.finalExportData = this.finalExportData.map((obj) => {
+      if (obj.objectName === objName) {
+        return { ...obj, isExpanded: !obj.isExpanded };
+      }
+      return obj;
+    });
+  }
+
+  handleFieldCheckboxChange(event) {
+    const objName = event.target.dataset.object;
+    const fieldName = event.target.dataset.field;
+    const isChecked = event.target.checked;
+
+    this.finalExportData = this.finalExportData.map((obj) => {
+      if (obj.objectName === objName) {
+        const newFields = obj.fields.map((f) => {
+          if (f.apiName === fieldName) {
+            return { ...f, selected: isChecked };
+          }
+          return f;
+        });
+        return { ...obj, fields: newFields };
+      }
+      return obj;
+    });
+  }
+
+  handleInitializeImport() {
+    const queries = [];
+    // Use finalExportData for objects and their selected fields
+    for (const obj of this.finalExportData) {
+      const selectedFields = obj.fields
+        .filter((f) => f.selected)
+        .map((f) => f.apiName);
+
+      // Ensure Id is always included
+      if (!selectedFields.includes("Id")) {
+        selectedFields.unshift("Id");
+      }
+
+      const selectClause = selectedFields.join(", ");
+      const ids = Array.from(this.lastQueriedIdSets.get(obj.objectName) || []);
+
+      for (const batch of this.chunkArray(ids, 200)) {
+        const where = batch
+          .filter(Boolean)
+          .map((id) => `'${id.replace(/'/g, "'")}'`)
+          .join(",");
+        if (!where) continue;
+        const soql = `SELECT ${selectClause} FROM ${obj.objectName} WHERE Id IN (${where})`;
+        queries.push({
+          objectName: obj.objectName,
+          count: batch.length,
+          soql,
+          fields: selectedFields
+        });
+      }
+    }
+    this.finalExportQueries = queries;
+    this.isImportInitialized = true;
+    console.log(
+      JSON.stringify({ type: "FINAL_EXPORT_SOQL_UPDATED", queries }, null, 2)
+    );
+  }
 
   computeExportOrder(edgesByObject, rootObject, idSetKeys = []) {
     // Build nodes, adjacency (parent -> children), and in-degree(children)
@@ -2902,6 +3049,7 @@ export default class ExternalOrgQuery extends LightningElement {
       };
       this.dependencyTree = dep;
       this.buildPlanState(dep);
+      this.isImportInitialized = false;
       // Collapse all nodes initially after building the plan,
       // then re-open the root so only descendants are collapsed
       try {
@@ -2962,6 +3110,7 @@ export default class ExternalOrgQuery extends LightningElement {
     this.planEdges = new Map();
     this.exportOrder = [];
     this.planReady = false;
+    this.isImportInitialized = false;
     this.lastQueriedIdSets = new Map();
     this.lastQueriedIdSnapshot = undefined;
     this.exportStats = undefined;
