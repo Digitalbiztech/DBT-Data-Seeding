@@ -1867,13 +1867,20 @@ export default class ExternalOrgQuery extends LightningElement {
     }
     this.error = undefined;
     // Build unique object list from finalExportQueries
-    const objects = Array.from(
-      new Set(
-        (this.finalExportQueries || [])
-          .map((q) => q && q.objectName)
-          .filter(Boolean)
-      )
+    const uniqueObjects = new Set(
+      (this.finalExportQueries || [])
+        .map((q) => q && q.objectName)
+        .filter(Boolean)
     );
+    // Sort objects according to exportOrder (Parent -> Child)
+    const objects = this.exportOrder.filter((obj) => uniqueObjects.has(obj));
+    // Append any objects that were in finalQueries but somehow not in exportOrder (fallback)
+    for (const obj of uniqueObjects) {
+      if (!objects.includes(obj)) {
+        objects.push(obj);
+      }
+    }
+
     this.wizard = { isOpen: true, step: "select", objects, index: 0 };
     this.showMatchingUIWizard = true;
     // Preload options for first object
