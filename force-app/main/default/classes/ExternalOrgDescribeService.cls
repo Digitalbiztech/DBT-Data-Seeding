@@ -28,6 +28,21 @@ public with sharing class ExternalOrgDescribeService {
     }
   }
 
+  public class FieldMetadata {
+    @AuraEnabled
+    public String label;
+    @AuraEnabled
+    public String apiName;
+    @AuraEnabled
+    public String type;
+
+    public FieldMetadata(String label, String apiName, String type) {
+      this.label = label;
+      this.apiName = apiName;
+      this.type = type;
+    }
+  }
+
   private static Map<String, Map<String, Object>> describeCache = new Map<String, Map<String, Object>>();
 
   private static final Set<String> IGNORED_CHILD_OBJECTS = new Set<String>{
@@ -841,5 +856,72 @@ public with sharing class ExternalOrgDescribeService {
       out.put(name, fields);
     }
     return out;
+  }
+
+  public static Map<String, List<FieldMetadata>> getFieldMetadata(
+    String sessionId,
+    String instanceUrl,
+    List<String> objectNames
+  ) {
+    Map<String, List<FieldMetadata>> result = new Map<String, List<FieldMetadata>>();
+    if (objectNames == null || objectNames.isEmpty())
+      return result;
+
+    for (String objName : objectNames) {
+      Map<String, Object> describe = describeSObject(
+        sessionId,
+        instanceUrl,
+        objName
+      );
+      if (describe == null)
+        continue;
+
+      List<FieldMetadata> metaList = new List<FieldMetadata>();
+      List<Object> fields = (List<Object>) describe.get('fields');
+      if (fields != null) {
+        for (Object fObj : fields) {
+          Map<String, Object> f = (Map<String, Object>) fObj;
+          metaList.add(
+            new FieldMetadata(
+              (String) f.get('label'),
+              (String) f.get('name'),
+              (String) f.get('type')
+            )
+          );
+        }
+      }
+      result.put(objName, metaList);
+    }
+    return result;
+  }
+
+  public static Map<String, List<FieldMetadata>> getFieldMetadataCurrent(
+    List<String> objectNames
+  ) {
+    Map<String, List<FieldMetadata>> result = new Map<String, List<FieldMetadata>>();
+    if (objectNames == null || objectNames.isEmpty())
+      return result;
+
+    Map<String, Schema.SObjectType> gd = Schema.getGlobalDescribe();
+    for (String objName : objectNames) {
+      Schema.SObjectType t = gd.get(objName);
+      if (t == null)
+        continue;
+
+      Schema.DescribeSObjectResult d = t.getDescribe();
+      List<FieldMetadata> metaList = new List<FieldMetadata>();
+      for (Schema.SObjectField f : d.fields.getMap().values()) {
+        Schema.DescribeFieldResult fd = f.getDescribe();
+        metaList.add(
+          new FieldMetadata(
+            fd.getLabel(),
+            fd.getName(),
+            String.valueOf(fd.getType()).toLowerCase()
+          )
+        );
+      }
+      result.put(objName, metaList);
+    }
+    return result;
   }
 }

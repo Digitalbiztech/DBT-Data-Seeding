@@ -214,6 +214,26 @@ public with sharing class ExternalOrgQueryController {
     );
   }
 
+  @AuraEnabled(cacheable=false)
+  public static Map<String, List<ExternalOrgDescribeService.FieldMetadata>> getFieldMetadata(
+    String sessionId,
+    String instanceUrl,
+    List<String> objectNames
+  ) {
+    return ExternalOrgDescribeService.getFieldMetadata(
+      sessionId,
+      instanceUrl,
+      objectNames
+    );
+  }
+
+  @AuraEnabled(cacheable=false)
+  public static Map<String, List<ExternalOrgDescribeService.FieldMetadata>> getFieldMetadataCurrent(
+    List<String> objectNames
+  ) {
+    return ExternalOrgDescribeService.getFieldMetadataCurrent(objectNames);
+  }
+
   @AuraEnabled
   public static String startDataSeedingBatch(
     String sourceSessionId,
