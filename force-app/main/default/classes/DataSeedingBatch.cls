@@ -478,8 +478,10 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     for (Map<String, Object> r : sourceRes.rows) {
       String name = (String) r.get('Name');
       String id = (String) r.get('Id');
-      nameToSourceId.put(name, id);
-      names.add('\'' + String.escapeSingleQuotes(name) + '\'');
+      if (name != null) {
+          nameToSourceId.put(name.toLowerCase(), id);
+          names.add('\'' + String.escapeSingleQuotes(name) + '\'');
+      }
     }
 
     String destSoql =
@@ -511,8 +513,11 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     for (Map<String, Object> r : destRes.rows) {
       String name = (String) r.get('Name');
       String destId = (String) r.get('Id');
-      if (nameToSourceId.containsKey(name)) {
-        profileMap.put(nameToSourceId.get(name), destId);
+      if (name != null) {
+          String key = name.toLowerCase();
+          if (nameToSourceId.containsKey(key)) {
+            profileMap.put(nameToSourceId.get(key), destId);
+          }
       }
     }
   }
@@ -573,13 +578,16 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       String id = (String) r.get('Id');
       if (val != null) {
         String sVal = String.valueOf(val);
-        valueToSourceId.put(sVal, id);
+        // Use lowercase key for case-insensitive matching
+        valueToSourceId.put(sVal.toLowerCase(), id);
         matchValues.add('\'' + String.escapeSingleQuotes(sVal) + '\'');
       }
     }
 
     if (matchValues.isEmpty())
       return;
+    
+    System.debug('resolveReferences: Looking for ' + matchValues.size() + ' values in ' + refObj);
 
     // 2. Query Destination for Ids matching Match Values
     String destSoql =
@@ -618,6 +626,8 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
 
     if (destRes == null || destRes.rows == null)
       return;
+      
+    System.debug('resolveReferences: Found ' + destRes.rows.size() + ' potential matches in destination.');
 
     // 3. Update idRemap
     if (!this.idRemap.containsKey(refObj)) {
@@ -630,8 +640,9 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       String destId = (String) r.get('Id');
       if (val != null) {
         String sVal = String.valueOf(val);
-        if (valueToSourceId.containsKey(sVal)) {
-          objMap.put(valueToSourceId.get(sVal), destId);
+        String key = sVal.toLowerCase();
+        if (valueToSourceId.containsKey(key)) {
+          objMap.put(valueToSourceId.get(key), destId);
         }
       }
     }
