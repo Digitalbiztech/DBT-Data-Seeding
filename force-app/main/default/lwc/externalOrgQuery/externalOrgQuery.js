@@ -2632,6 +2632,8 @@ export default class ExternalOrgQuery extends LightningElement {
       this.isLoading = true;
       this.schemaWarnings = new Map();
 
+      const selectedEdges = this.collectSelectedEdgesFromPlan(this.planRoot);
+
       // Get creatable fields from source and destination for intersection
       const sourceCreatableMap = await this.routeSourceCall(
         () => getCreateableFieldsCurrent({ objectNames: objectsWithIds }),
@@ -2667,6 +2669,22 @@ export default class ExternalOrgQuery extends LightningElement {
         let intersect = srcFields.filter(
           (f) => f && f !== "Id" && f !== "OwnerId" && dstSet.has(f)
         );
+
+        // Filter out deselected relationship fields based on the plan
+        const allEdgesForObj = this.planEdges.get(objectName) || [];
+        const selectedEdgesForObj = selectedEdges.get(objectName) || [];
+        const selectedFieldNames = new Set(
+          selectedEdgesForObj.map((e) => e.fieldName)
+        );
+
+        intersect = intersect.filter((f) => {
+          // If this field is a relationship field in our plan, it must be selected
+          const planEdge = allEdgesForObj.find((e) => e.fieldName === f);
+          if (planEdge) {
+            return selectedFieldNames.has(f);
+          }
+          return true; // Not a relationship field in the plan, keep it
+        });
 
         // Identify schema mismatches
         const droppedFields = srcFields.filter(
