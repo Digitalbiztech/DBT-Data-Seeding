@@ -1698,6 +1698,7 @@ export default class ExternalOrgQuery extends LightningElement {
       }
     };
     if (edgeNode.children && edgeNode.children[0]) {
+      edgeNode.children[0].lockedByAncestor = !isSelected;
       setDescendants(edgeNode.children[0], !!isSelected);
     }
     this.planRoot = root;
@@ -2345,10 +2346,14 @@ export default class ExternalOrgQuery extends LightningElement {
     const root = this.clonePlanNode(this.planRoot);
     const info = this.findParentAndIndexById(root, nodeId);
     if (!info) return;
-    const objectNode =
-      info.parent.children[info.index] ||
-      (info.parent && info.parent.id === nodeId ? info.parent : null);
+    const objectNode = info.parent.children[info.index];
     if (!objectNode) return;
+
+    // Synchronize parent edge selection if this object is a target of an edge
+    if (info.parent && info.parent.type === "edge") {
+      info.parent.isSelected = !!isSelected;
+    }
+
     const setDescendants = (node, selected) => {
       if (!node || !Array.isArray(node.children)) return;
       for (const child of node.children) {
@@ -2387,10 +2392,11 @@ export default class ExternalOrgQuery extends LightningElement {
       if (Array.isArray(node.children)) {
         for (const child of node.children) {
           if (child.type === "edge") {
-            if (child.isSelected)
+            if (child.isSelected) {
               add(currentObject, child.fieldName, child.targetObject);
-            if (child.children && child.children[0]) {
-              walk(child.children[0], child.targetObject);
+              if (child.children && child.children[0]) {
+                walk(child.children[0], child.targetObject);
+              }
             }
           } else {
             walk(child, currentObject);
