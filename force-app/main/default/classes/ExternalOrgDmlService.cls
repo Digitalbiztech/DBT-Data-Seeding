@@ -12,6 +12,8 @@ public with sharing class ExternalOrgDmlService {
     public String name;
     @AuraEnabled
     public String recordUrl;
+    @AuraEnabled
+    public String rawError;
   }
 
   public static List<InsertMapping> insertRecordsCurrent(
@@ -84,6 +86,7 @@ public with sharing class ExternalOrgDmlService {
           m.success = false;
           if (sr.getErrors() != null && sr.getErrors().size() > 0) {
             Database.Error err = sr.getErrors()[0];
+            m.rawError = JSON.serialize(sr.getErrors());
             String msg = err.getMessage();
             if (err.getFields() != null && !err.getFields().isEmpty()) {
               msg += ' (Fields: ' + String.join(err.getFields(), ', ') + ')';
@@ -178,6 +181,7 @@ public with sharing class ExternalOrgDmlService {
           m.success = false;
           if (sr.getErrors() != null && sr.getErrors().size() > 0) {
             Database.Error err = sr.getErrors()[0];
+            m.rawError = JSON.serialize(sr.getErrors());
             String msg = err.getMessage();
             if (err.getFields() != null && !err.getFields().isEmpty()) {
               msg += ' (Fields: ' + String.join(err.getFields(), ', ') + ')';
@@ -341,6 +345,7 @@ public with sharing class ExternalOrgDmlService {
           } else {
             List<Object> errors = (List<Object>) result.get('errors');
             if (errors != null && !errors.isEmpty()) {
+              m.rawError = JSON.serialize(errors);
               Map<String, Object> err = (Map<String, Object>) errors[0];
               String msg = (String) err.get('message');
               List<Object> fields = (List<Object>) err.get('fields');

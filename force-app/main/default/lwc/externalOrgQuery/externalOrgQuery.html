@@ -557,6 +557,17 @@
                             <td>
                               <div class="slds-truncate" title={row.message}>
                                 {row.message}
+                                <template if:true={row.rawError}>
+                                  <lightning-button-icon
+                                    icon-name="utility:info"
+                                    variant="bare"
+                                    alternative-text="Show Raw Error"
+                                    title="Show Raw Error"
+                                    class="slds-m-left_xx-small"
+                                    data-raw={row.rawError}
+                                    onclick={handleShowRawError}
+                                  ></lightning-button-icon>
+                                </template>
                               </div>
                             </td>
                           </tr>
@@ -862,6 +873,17 @@
                                 </template> </strong
                               >: {e.errorMessage}
                               <span if:true={e.type}>({e.type})</span>
+                              <template if:true={e.rawError}>
+                                <lightning-button-icon
+                                  icon-name="utility:info"
+                                  variant="bare"
+                                  alternative-text="Show Raw Error"
+                                  title="Show Raw Error"
+                                  class="slds-m-left_xx-small"
+                                  data-raw={e.rawError}
+                                  onclick={handleShowRawError}
+                                ></lightning-button-icon>
+                              </template>
                             </div>
                           </template>
                         </div>
@@ -1020,6 +1042,54 @@
                       onclick={handleMatchingSave}
                     ></lightning-button>
                   </template>
+                </footer>
+              </div>
+            </section>
+            <div class="slds-backdrop slds-backdrop_open"></div>
+          </template>
+
+          <!-- Raw Error Modal -->
+          <template if:true={showRawErrorModal}>
+            <section
+              role="dialog"
+              tabindex="-1"
+              aria-modal="true"
+              class="slds-modal slds-fade-in-open"
+            >
+              <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                  <button
+                    class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                    title="Close"
+                    onclick={handleCloseRawError}
+                  >
+                    <lightning-icon
+                      icon-name="utility:close"
+                      alternative-text="close"
+                      variant="inverse"
+                      size="small"
+                    ></lightning-icon>
+                    <span class="slds-assistive-text">Close</span>
+                  </button>
+                  <h2 class="slds-text-heading_medium">Raw Error Detail</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                  <pre
+                    style="
+                      background: #f4f6f9;
+                      padding: 1rem;
+                      border-radius: 4px;
+                      overflow: auto;
+                    "
+                    >{selectedRawError}</pre
+                  >
+                </div>
+                <footer class="slds-modal__footer">
+                  <lightning-button
+                    variant="neutral"
+                    label="Close"
+                    onclick={handleCloseRawError}
+                  ></lightning-button>
                 </footer>
               </div>
             </section>

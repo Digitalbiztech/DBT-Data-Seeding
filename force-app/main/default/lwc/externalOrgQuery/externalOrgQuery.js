@@ -147,6 +147,24 @@ export default class ExternalOrgQuery extends LightningElement {
   @track successRows = [];
   @track errorRows = [];
 
+  @track showRawErrorModal = false;
+  @track selectedRawError = "";
+
+  handleShowRawError(event) {
+    const raw = event.target.dataset.raw;
+    try {
+      this.selectedRawError = JSON.stringify(JSON.parse(raw), null, 2);
+    } catch (e) {
+      this.selectedRawError = raw;
+    }
+    this.showRawErrorModal = true;
+  }
+
+  handleCloseRawError() {
+    this.showRawErrorModal = false;
+    this.selectedRawError = "";
+  }
+
   get isBatchProcessing() {
     return (
       !!this.batchJobId &&
@@ -2029,6 +2047,7 @@ export default class ExternalOrgQuery extends LightningElement {
             report.errors.push({
               oldId: (r && r.oldId) || "",
               errorMessage: (r && r.errorMessage) || "Unknown error",
+              rawError: (r && r.rawError) || null,
               sourceUrl:
                 sourceBaseUrl && r.oldId ? `${sourceBaseUrl}/${r.oldId}` : null
             });
@@ -2132,6 +2151,7 @@ export default class ExternalOrgQuery extends LightningElement {
               report.errors.push({
                 oldId: (r && r.oldId) || "",
                 errorMessage: (r && r.errorMessage) || "Unknown error",
+                rawError: (r && r.rawError) || null,
                 type: "Insert",
                 sourceUrl:
                   sourceBaseUrl && r.oldId
@@ -2191,6 +2211,7 @@ export default class ExternalOrgQuery extends LightningElement {
               report.errors.push({
                 oldId: sourceId,
                 errorMessage: (r && r.errorMessage) || "Unknown error",
+                rawError: (r && r.rawError) || null,
                 type: "Update",
                 sourceUrl:
                   sourceBaseUrl && sourceId
