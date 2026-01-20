@@ -105,6 +105,14 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     String objectName = (String) task.get('objectName');
     String soql = (String) task.get('soql');
 
+    // Extract fields to ensure we retrieve null values from local queries
+    List<Object> fieldsObj = (List<Object>) task.get('fields');
+    List<String> queryFields = new List<String>();
+    if (fieldsObj != null) {
+      for (Object o : fieldsObj)
+        queryFields.add((String) o);
+    }
+
     System.debug(
       'Processing ' +
         objectName +
@@ -142,7 +150,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
             soql
           );
         } else {
-          res = ExternalOrgQueryService.queryCurrent(soql);
+          res = ExternalOrgQueryService.queryCurrent(soql, queryFields);
         }
       }
     } catch (Exception e) {
@@ -184,6 +192,34 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       }
     }
 
+    // Pre-scan for missing references and attempt to resolve them
+    Map<String, Set<String>> missingRefs = new Map<String, Set<String>>();
+    for (Map<String, Object> row : rows) {
+      for (String field : refFields.keySet()) {
+        Object val = row.get(field);
+        if (val != null && val instanceof String) {
+          String sVal = (String) val;
+          String parentObj = refFields.get(field);
+          // Check if we already have a mapping
+          Boolean hasMapping =
+            this.idRemap.containsKey(parentObj) &&
+            this.idRemap.get(parentObj).containsKey(sVal);
+
+          if (!hasMapping) {
+            if (!missingRefs.containsKey(parentObj)) {
+              missingRefs.put(parentObj, new Set<String>());
+            }
+            missingRefs.get(parentObj).add(sVal);
+          }
+        }
+      }
+    }
+
+    // Resolve missing references
+    for (String refObj : missingRefs.keySet()) {
+      resolveReferences(refObj, missingRefs.get(refObj));
+    }
+
     List<Map<String, Object>> originalRows = new List<Map<String, Object>>();
 
     for (Map<String, Object> row : rows) {
@@ -201,7 +237,11 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
         // Skip specific fields for User object as requested
         if (objectName == 'User') {
           String f = field.toLowerCase();
-          if (f == 'userroleid' || f.contains('userlicense')) {
+          if (
+            f == 'userroleid' ||
+            f.contains('userlicense') ||
+            f == 'managerid'
+          ) {
             continue;
           }
         }
@@ -215,7 +255,28 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
             Map<String, String> parentMap = this.idRemap.get(parentObj);
             if (val instanceof String && parentMap.containsKey((String) val)) {
               val = parentMap.get((String) val);
+            } else if (val instanceof String) {
+              // WARN: Reference ID not found in map and not resolved
+              System.debug(
+                'WARNING: Unresolved Source ID for field ' +
+                  field +
+                  ': ' +
+                  val +
+                  ' (Target: ' +
+                  parentObj +
+                  ')'
+              );
             }
+          } else if (val instanceof String) {
+            System.debug(
+              'WARNING: No mappings found for object ' +
+                parentObj +
+                '. Field ' +
+                field +
+                ' with value ' +
+                val +
+                ' remains unresolved.'
+            );
           }
         }
         newRec.put(field, val);
@@ -452,6 +513,126 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       String destId = (String) r.get('Id');
       if (nameToSourceId.containsKey(name)) {
         profileMap.put(nameToSourceId.get(name), destId);
+      }
+    }
+  }
+
+  private void resolveReferences(String refObj, Set<String> missingSourceIds) {
+    if (missingSourceIds == null || missingSourceIds.isEmpty())
+      return;
+
+    String matchField = (refObj == 'User') ? 'Email' : 'Name';
+
+    // 1. Query Source for Match Values
+    List<String> quotedIds = new List<String>();
+    for (String id : missingSourceIds) {
+      quotedIds.add('\'' + String.escapeSingleQuotes(id) + '\'');
+    }
+
+    String sourceSoql =
+      'SELECT Id, ' +
+      matchField +
+      ' FROM ' +
+      refObj +
+      ' WHERE Id IN (' +
+      String.join(quotedIds, ',') +
+      ')';
+
+    ExternalOrgQueryService.QueryResultWrapper sourceRes;
+    try {
+      if (
+        String.isNotBlank(sourceSessionId) &&
+        String.isNotBlank(sourceInstanceUrl)
+      ) {
+        sourceRes = ExternalOrgQueryService.queryWithSession(
+          sourceSessionId,
+          sourceInstanceUrl,
+          sourceSoql
+        );
+      } else {
+        sourceRes = ExternalOrgQueryService.queryCurrent(sourceSoql);
+      }
+    } catch (Exception e) {
+      System.debug(
+        'resolveReferences: Error querying source ' +
+          refObj +
+          ': ' +
+          e.getMessage()
+      );
+      return;
+    }
+
+    if (sourceRes == null || sourceRes.rows == null || sourceRes.rows.isEmpty())
+      return;
+
+    Map<String, String> valueToSourceId = new Map<String, String>();
+    List<String> matchValues = new List<String>();
+
+    for (Map<String, Object> r : sourceRes.rows) {
+      Object val = r.get(matchField);
+      String id = (String) r.get('Id');
+      if (val != null) {
+        String sVal = String.valueOf(val);
+        valueToSourceId.put(sVal, id);
+        matchValues.add('\'' + String.escapeSingleQuotes(sVal) + '\'');
+      }
+    }
+
+    if (matchValues.isEmpty())
+      return;
+
+    // 2. Query Destination for Ids matching Match Values
+    String destSoql =
+      'SELECT Id, ' +
+      matchField +
+      ' FROM ' +
+      refObj +
+      ' WHERE ' +
+      matchField +
+      ' IN (' +
+      String.join(matchValues, ',') +
+      ')';
+
+    ExternalOrgQueryService.QueryResultWrapper destRes;
+    try {
+      if (
+        String.isNotBlank(destSessionId) && String.isNotBlank(destInstanceUrl)
+      ) {
+        destRes = ExternalOrgQueryService.queryWithSession(
+          destSessionId,
+          destInstanceUrl,
+          destSoql
+        );
+      } else {
+        destRes = ExternalOrgQueryService.queryCurrent(destSoql);
+      }
+    } catch (Exception e) {
+      System.debug(
+        'resolveReferences: Error querying dest ' +
+          refObj +
+          ': ' +
+          e.getMessage()
+      );
+      return;
+    }
+
+    if (destRes == null || destRes.rows == null)
+      return;
+
+    // 3. Update idRemap
+    if (!this.idRemap.containsKey(refObj)) {
+      this.idRemap.put(refObj, new Map<String, String>());
+    }
+    Map<String, String> objMap = this.idRemap.get(refObj);
+
+    for (Map<String, Object> r : destRes.rows) {
+      Object val = r.get(matchField);
+      String destId = (String) r.get('Id');
+      if (val != null) {
+        String sVal = String.valueOf(val);
+        if (valueToSourceId.containsKey(sVal)) {
+          objMap.put(valueToSourceId.get(sVal), destId);
+        }
       }
     }
   }

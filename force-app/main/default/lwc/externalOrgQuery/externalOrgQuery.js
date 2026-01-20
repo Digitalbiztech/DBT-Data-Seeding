@@ -888,10 +888,11 @@ export default class ExternalOrgQuery extends LightningElement {
 
       node.children.forEach((child) => {
         if (child.type === "edge") {
-          const relName =
-            (child.relationshipName ||
-             child.fieldName ||
-             "").toLowerCase();
+          const relName = (
+            child.relationshipName ||
+            child.fieldName ||
+            ""
+          ).toLowerCase();
           const isSubquery =
             child.relationshipType === "Child" && subqueries.has(relName);
           const isRequested = requestedRels.has(relName);
@@ -1067,10 +1068,7 @@ export default class ExternalOrgQuery extends LightningElement {
         (e) => `${e.fieldName} -> ${e.target} (${e.relationshipType})`
       );
     });
-    console.log(
-      "Dependency Graph (Edges):",
-      JSON.stringify(graphLog, null, 2)
-    );
+    console.log("Dependency Graph (Edges):", JSON.stringify(graphLog, null, 2));
 
     // Calculate effective depth from graph (initially all selected)
     const computedDepth = this.calculateSelectedDepth(this.planRoot);
@@ -2860,7 +2858,9 @@ export default class ExternalOrgQuery extends LightningElement {
   get finalExportDataUI() {
     return (this.finalExportData || []).map((obj) => ({
       ...obj,
-      toggleIcon: obj.isExpanded ? "utility:chevrondown" : "utility:chevronright",
+      toggleIcon: obj.isExpanded
+        ? "utility:chevrondown"
+        : "utility:chevronright",
       iconName: obj.objectName.endsWith("__c")
         ? "standard:custom"
         : "standard:record"

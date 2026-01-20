@@ -174,6 +174,13 @@ public with sharing class ExternalOrgQueryService {
   }
 
   public static QueryResultWrapper queryCurrent(String soql) {
+    return queryCurrent(soql, null);
+  }
+
+  public static QueryResultWrapper queryCurrent(
+    String soql,
+    List<String> fields
+  ) {
     if (String.isBlank(soql)) {
       AuraHandledException ahe = new AuraHandledException('SOQL is required.');
       ahe.setMessage('SOQL is required.');
@@ -186,15 +193,35 @@ public with sharing class ExternalOrgQueryService {
       wrap.done = true;
       List<Map<String, Object>> rows = new List<Map<String, Object>>();
       Set<String> allCols = new Set<String>();
+
       for (SObject s : recs) {
         Map<String, Object> row = new Map<String, Object>();
-        Map<String, Object> fields = s.getPopulatedFieldsAsMap();
-        for (String k : fields.keySet()) {
-          row.put(k, fields.get(k));
-          allCols.add(k);
+        if (fields != null && !fields.isEmpty()) {
+          for (String f : fields) {
+            // Handle relationship fields (e.g. Account.Name) if necessary, 
+            // but for seeding we mostly care about flat fields. 
+            // However, s.get() works for direct fields.
+            try {
+               Object val = s.get(f);
+               row.put(f, val);
+               allCols.add(f);
+            } catch (Exception e) {
+               // Field might not be in query or invalid
+            }
+          }
+          // Ensure Id is always there
+          row.put('Id', s.Id);
+          allCols.add('Id');
+        } else {
+          Map<String, Object> populated = s.getPopulatedFieldsAsMap();
+          for (String k : populated.keySet()) {
+            row.put(k, populated.get(k));
+            allCols.add(k);
+          }
         }
         rows.add(row);
       }
+      
       List<String> columns = new List<String>(allCols);
       Boolean hasId = false;
       for (String c : columns) {

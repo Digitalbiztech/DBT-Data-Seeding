@@ -36,6 +36,12 @@ public with sharing class ExternalOrgDmlService {
       List<String> oldIds = new List<String>();
       List<String> inputNames = new List<String>();
 
+      Map<String, Schema.SObjectField> fieldMap = t.getDescribe().fields.getMap();
+      Map<String, Schema.SObjectField> lowFieldMap = new Map<String, Schema.SObjectField>();
+      for (String k : fieldMap.keySet()) {
+        lowFieldMap.put(k.toLowerCase(), fieldMap.get(k));
+      }
+
       for (Map<String, Object> rec : records) {
         if (rec == null)
           continue;
@@ -61,15 +67,14 @@ public with sharing class ExternalOrgDmlService {
             }
           }
 
-          try {
-            sobj.put(key, rec.get(key));
-          } catch (Exception e) {
-            // Ignore fields that do not exist or cannot be set
-          }
+          safePut(sobj, key, rec.get(key), lowFieldMap);
         }
         toInsert.add(sobj);
       }
-      Database.SaveResult[] results = Database.insert(toInsert, false);
+      Database.DMLOptions dml = new Database.DMLOptions();
+      dml.DuplicateRuleHeader.allowSave = true;
+      dml.OptAllOrNone = false;
+      Database.SaveResult[] results = Database.insert(toInsert, dml);
       String baseUrl = URL.getOrgDomainUrl().toExternalForm();
 
       for (Integer i = 0; i < results.size(); i++) {
@@ -127,6 +132,12 @@ public with sharing class ExternalOrgDmlService {
       List<String> targetIds = new List<String>();
       List<String> inputNames = new List<String>();
 
+      Map<String, Schema.SObjectField> fieldMap = t.getDescribe().fields.getMap();
+      Map<String, Schema.SObjectField> lowFieldMap = new Map<String, Schema.SObjectField>();
+      for (String k : fieldMap.keySet()) {
+        lowFieldMap.put(k.toLowerCase(), fieldMap.get(k));
+      }
+
       for (Map<String, Object> rec : records) {
         if (rec == null)
           continue;
@@ -151,11 +162,7 @@ public with sharing class ExternalOrgDmlService {
             }
           }
 
-          try {
-            sobj.put(key, rec.get(key));
-          } catch (Exception e) {
-            // Ignore
-          }
+          safePut(sobj, key, rec.get(key), lowFieldMap);
         }
         toUpdate.add(sobj);
       }
@@ -164,7 +171,10 @@ public with sharing class ExternalOrgDmlService {
         return out;
       }
 
-      Database.SaveResult[] results = Database.update(toUpdate, false);
+      Database.DMLOptions dml = new Database.DMLOptions();
+      dml.DuplicateRuleHeader.allowSave = true;
+      dml.OptAllOrNone = false;
+      Database.SaveResult[] results = Database.update(toUpdate, dml);
       String baseUrl = URL.getOrgDomainUrl().toExternalForm();
 
       for (Integer i = 0; i < results.size(); i++) {
@@ -384,6 +394,62 @@ public with sharing class ExternalOrgDmlService {
       AuraHandledException ahe = new AuraHandledException(e.getMessage());
       ahe.setMessage(e.getMessage());
       throw ahe;
+    }
+  }
+
+  private static void safePut(
+    SObject sobj,
+    String key,
+    Object val,
+    Map<String, Schema.SObjectField> fieldMap
+  ) {
+    if (fieldMap == null) {
+      try {
+        sobj.put(key, val);
+      } catch (Exception e) {
+      }
+      return;
+    }
+    Schema.SObjectField field = fieldMap.get(key.toLowerCase());
+    if (field == null) {
+      // Field might exist but not in map (shouldn't happen if map is from describe)
+      // or key is invalid. Try raw put just in case.
+      try {
+        sobj.put(key, val);
+      } catch (Exception e) {
+      }
+      return;
+    }
+
+    try {
+      Schema.DisplayType type = field.getDescribe().getType();
+      if (val instanceof String && val != null) {
+        String sVal = (String) val;
+        if (type == Schema.DisplayType.Date) {
+          sobj.put(field, Date.valueOf(sVal));
+        } else if (type == Schema.DisplayType.DateTime) {
+          sobj.put(
+            field,
+            (DateTime) JSON.deserialize('"' + sVal + '"', DateTime.class)
+          );
+        } else if (type == Schema.DisplayType.Boolean) {
+          sobj.put(field, Boolean.valueOf(sVal));
+        } else if (type == Schema.DisplayType.Integer) {
+          sobj.put(field, Integer.valueOf(sVal));
+        } else if (
+          type == Schema.DisplayType.Double ||
+          type == Schema.DisplayType.Currency ||
+          type == Schema.DisplayType.Percent
+        ) {
+          sobj.put(field, Double.valueOf(sVal));
+        } else {
+          sobj.put(field, sVal);
+        }
+      } else {
+        sobj.put(field, val);
+      }
+    } catch (Exception e) {
+      // Ignore
     }
   }
 }
