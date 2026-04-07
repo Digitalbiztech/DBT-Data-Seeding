@@ -87,8 +87,8 @@ const STANDARD_OBJECT_NAMES = new Set([
 export default class ExternalOrgQuery extends LightningElement {
   // UI state for external org connection and query execution
   // Source org (kept as existing fields for compatibility)
-  @track username = "ayannbhunia@gmail.com.pdo3"; // for testing, will remove later
-  @track password = "Kolkata1234!1fspkhvNFil1geWgHLxoSYeCM"; // for testing, will remove later
+  @track username = "";
+  @track password = "";
   @track environment = "Production";
   @track testMessage;
   @track sessionId;
