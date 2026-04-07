@@ -10,13 +10,12 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
 
   // State
   private Integer currentTaskIndex = 0;
+  @TestVisible
   private String currentNextRecordsUrl = null;
   private String chainHeadJobId = null;
 
-  // Maps old Id -> new Id. Key: ObjectName, Value: Map<OldId, NewId>
-  private Map<String, Map<String, String>> idRemap;
-
   // Metadata cache for reference fields: ObjectName -> Map<FieldName, ReferenceToObjectName>
+  @TestVisible
   private Map<String, Map<String, String>> referenceFieldCache;
 
   public class LogEntry {
@@ -31,10 +30,13 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     public String rawError;
   }
 
-  // State: List of all logs
+  @TestVisible
   private List<LogEntry> logs;
   private Integer successLogCount = 0;
   private static final Integer MAX_SUCCESS_LOGS = 1000;
+
+  @TestVisible
+  private Map<String, Map<String, String>> idRemap;
 
   public DataSeedingBatch(
     String sourceSessionId,
@@ -62,7 +64,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
   // Return a dummy list of size 1 to ensure execute runs exactly once per job submission
   public Iterable<Integer> start(Database.BatchableContext bc) {
     if (String.isBlank(this.chainHeadJobId)) {
-      this.chainHeadJobId = bc.getJobId();
+      this.chainHeadJobId = (bc != null) ? bc.getJobId() : '707WG0000000000AAA';
     }
     System.debug(
       'DataSeedingBatch start. Task Index: ' +
@@ -415,14 +417,17 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       }
     } else {
       // All done
-      saveReport(
-        String.isNotBlank(this.chainHeadJobId)
-          ? this.chainHeadJobId
-          : bc.getJobId()
-      );
+      String jId = 'manual_job_id';
+      if (String.isNotBlank(this.chainHeadJobId)) {
+        jId = this.chainHeadJobId;
+      } else if (bc != null) {
+        jId = bc.getJobId();
+      }
+      saveReport(jId);
     }
   }
 
+  @TestVisible
   private void saveReport(String jobId) {
     System.debug('All Tasks Completed. Saving Report.');
     System.debug('Total logs: ' + (this.logs != null ? this.logs.size() : 0));
@@ -441,6 +446,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     }
   }
 
+  @TestVisible
   private void resolveUserProfiles(List<Map<String, Object>> rows) {
     Set<String> sourceProfileIds = new Set<String>();
     for (Map<String, Object> row : rows) {
@@ -549,6 +555,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     }
   }
 
+  @TestVisible
   private void resolveReferences(String refObj, Set<String> missingSourceIds) {
     if (missingSourceIds == null || missingSourceIds.isEmpty())
       return;
@@ -675,6 +682,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
     }
   }
   
+  @TestVisible
   private Map<String, String> getLocalReferenceFields(String objectName) {
       Map<String, String> refs = new Map<String, String>();
       try {

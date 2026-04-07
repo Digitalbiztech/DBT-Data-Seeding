@@ -327,6 +327,7 @@ public with sharing class DataSeedingService {
     return processed;
   }
 
+  @TestVisible
   private static void resolveReferences(
     String refObj, 
     Set<String> missingSourceIds,
@@ -382,6 +383,7 @@ public with sharing class DataSeedingService {
     }
   }
 
+  @TestVisible
   private static void resolveUserProfiles(
       List<Map<String, Object>> rows,
       Map<String, Map<String, String>> idRemap,

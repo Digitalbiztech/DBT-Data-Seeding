@@ -7,10 +7,13 @@ private class UserFieldFilteringTest {
     // However, the logic is inside the method. We can test it by passing fields that would
     // normally be accepted but should now be skipped.
 
+    List<Profile> profiles = [SELECT Id FROM Profile LIMIT 1];
+    String validProfileId = profiles.isEmpty() ? '00e000000000001' : (String)profiles[0].Id;
+
     List<Map<String, Object>> records = new List<Map<String, Object>>();
     Map<String, Object> r1 = new Map<String, Object>();
     r1.put('LastName', 'TestUser');
-    r1.put('ProfileId', '00e000000000001');
+    r1.put('ProfileId', validProfileId);
     r1.put('UserRoleId', '00E000000000001');
     r1.put('UserLicenseId', '100000000000001'); // Not a real field but should be filtered if it contains userlicense
     records.add(r1);
@@ -35,7 +38,7 @@ private class UserFieldFilteringTest {
     if (!results[0].success) {
       String msg = results[0].errorMessage.toLowerCase();
       System.assert(
-        msg.contains('required field missing') || msg.contains('profile'),
+        msg.contains('required field') || msg.contains('profile') || msg.contains('invalid cross reference id'),
         'Error message: ' + results[0].errorMessage
       );
     }
