@@ -1,4 +1,4 @@
-public class DataSeedingBatch implements Database.Batchable<Integer>, Database.Stateful, Database.AllowsCallouts {
+public with sharing class DataSeedingBatch implements Database.Batchable<Integer>, Database.Stateful, Database.AllowsCallouts {
   // Configuration
   private String sourceSessionId;
   private String sourceInstanceUrl;
@@ -633,7 +633,7 @@ public class DataSeedingBatch implements Database.Batchable<Integer>, Database.S
       matchField +
       ' IN (' +
       String.join(matchValues, ',') +
-      ')';
+      ') WITH SECURITY_ENFORCED';
 
     ExternalOrgQueryService.QueryResultWrapper destRes;
     try {

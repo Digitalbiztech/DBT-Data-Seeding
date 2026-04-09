@@ -171,10 +171,12 @@ public with sharing class ExternalOrgDmlService {
         return out;
       }
 
+      SObjectAccessDecision securityDecision = Security.stripInaccessible(AccessType.UPDATABLE, toUpdate);
+      List<SObject> safeToUpdate = securityDecision.getRecords();
       Database.DMLOptions dml = new Database.DMLOptions();
       dml.DuplicateRuleHeader.allowSave = true;
       dml.OptAllOrNone = false;
-      Database.SaveResult[] results = Database.update(toUpdate, dml);
+      Database.SaveResult[] results = Database.update(safeToUpdate, dml);
       String baseUrl = URL.getOrgDomainUrl().toExternalForm();
 
       for (Integer i = 0; i < results.size(); i++) {

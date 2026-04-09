@@ -17,60 +17,63 @@ private class DataSeedingBatchTest {
 
   @isTest
   static void testBatchExecution() {
-    // Mock Tasks
-    List<Map<String, Object>> tasks = new List<Map<String, Object>>();
-    Map<String, Object> task = new Map<String, Object>();
-    task.put('objectName', 'Account');
-    task.put('soql', 'SELECT Id, Name FROM Account');
-    tasks.add(task);
+    User adminUser = TestDataFactory.createAdminUser();
+    System.runAs(adminUser) {
+      // Mock Tasks
+      List<Map<String, Object>> tasks = new List<Map<String, Object>>();
+      Map<String, Object> task = new Map<String, Object>();
+      task.put('objectName', 'Account');
+      task.put('soql', 'SELECT Id, Name FROM Account');
+      tasks.add(task);
 
-    // Mock Plan Edges
-    Map<String, Map<String, String>> planEdges = new Map<String, Map<String, String>>();
+      // Mock Plan Edges
+      Map<String, Map<String, String>> planEdges = new Map<String, Map<String, String>>();
 
-    // Setup Batch
-    DataSeedingBatch batch = new DataSeedingBatch(
-      'srcSession',
-      'https://src.salesforce.com',
-      'destSession',
-      'https://dest.salesforce.com',
-      tasks,
-      planEdges,
-      null
-    );
+      // Setup Batch
+      DataSeedingBatch batch = new DataSeedingBatch(
+        'srcSession',
+        'https://src.salesforce.com',
+        'destSession',
+        'https://dest.salesforce.com',
+        tasks,
+        planEdges,
+        null
+      );
 
-    // Mock Callouts
-    // We need a composite mock or handle multiple callouts?
-    // The batch does:
-    // 1. queryWithSession (GET query)
-    // 2. createRecordsRemote (POST composite)
+      // Mock Callouts
+      // We need a composite mock or handle multiple callouts?
+      // The batch does:
+      // 1. queryWithSession (GET query)
+      // 2. createRecordsRemote (POST composite)
 
-    // Simple mock that returns valid JSON for both
-    String queryResp = '{"totalSize": 1, "done": true, "records": [{"Id": "001000000000001", "Name": "Test Acc", "attributes": {"type": "Account"}}]}';
-    String insertResp = '[{"success": true, "id": "001000000000002"}]';
+      // Simple mock that returns valid JSON for both
+      String queryResp = '{"totalSize": 1, "done": true, "records": [{"Id": "001000000000001", "Name": "Test Acc", "attributes": {"type": "Account"}}]}';
+      String insertResp = '[{"success": true, "id": "001000000000002"}]';
 
-    // We can't easily switch mocks within one execute unless we use a smarter mock
-    // Let's use a MultiRequestMock
+      // We can't easily switch mocks within one execute unless we use a smarter mock
+      // Let's use a MultiRequestMock
 
-    Test.setMock(
-      HttpCalloutMock.class,
-      new MultiRequestMock(queryResp, insertResp)
-    );
+      Test.setMock(
+        HttpCalloutMock.class,
+        new MultiRequestMock(queryResp, insertResp)
+      );
 
-    Test.startTest();
-    Database.executeBatch(batch, 1);
-    Test.stopTest();
+      Test.startTest();
+      Database.executeBatch(batch, 1);
+      Test.stopTest();
 
-    // Verify logs were saved
-    List<ContentVersion> cvs = [
-      SELECT Id, Title, VersionData
-      FROM ContentVersion
-      WHERE Title LIKE 'SeedingReport_%'
-    ];
-    System.assertEquals(1, cvs.size(), 'Report should be generated');
+      // Verify logs were saved
+      List<ContentVersion> cvs = [
+        SELECT Id, Title, VersionData
+        FROM ContentVersion
+        WHERE Title LIKE 'SeedingReport_%'
+      ];
+      System.assertEquals(1, cvs.size(), 'Report should be generated');
 
-    String logBody = cvs[0].VersionData.toString();
-    System.debug('Log Body: ' + logBody);
-    System.assert(logBody.contains('Success'), 'Log should contain success');
+      String logBody = cvs[0].VersionData.toString();
+      System.debug('Log Body: ' + logBody);
+      System.assert(logBody.contains('Success'), 'Log should contain success');
+    }
   }
 
   public class MultiRequestMock implements HttpCalloutMock {

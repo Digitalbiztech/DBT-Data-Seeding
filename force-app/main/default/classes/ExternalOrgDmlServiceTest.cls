@@ -2,28 +2,26 @@
 private class ExternalOrgDmlServiceTest {
   @isTest
   static void testInsertRecordsCurrent() {
-    // Setup: We can't easily insert into standard objects without required fields or knowing the org shape.
-    // But we can try inserting a simple Account if enabled.
-    // Ideally we use a mock or a specific test object, but for 'Current' it runs actual DML.
-    // We will try to insert a list of Accounts.
+    User adminUser = TestDataFactory.createAdminUser();
+    System.runAs(adminUser) {
+      List<Map<String, Object>> records = new List<Map<String, Object>>();
+      Map<String, Object> r1 = new Map<String, Object>();
+      r1.put('Name', 'Test Account 1');
+      r1.put('Id', '001000000000001'); // Old ID
+      records.add(r1);
 
-    List<Map<String, Object>> records = new List<Map<String, Object>>();
-    Map<String, Object> r1 = new Map<String, Object>();
-    r1.put('Name', 'Test Account 1');
-    r1.put('Id', '001000000000001'); // Old ID
-    records.add(r1);
+      Test.startTest();
+      List<ExternalOrgDmlService.InsertMapping> results = ExternalOrgDmlService.insertRecordsCurrent(
+        'Account',
+        records
+      );
+      Test.stopTest();
 
-    Test.startTest();
-    List<ExternalOrgDmlService.InsertMapping> results = ExternalOrgDmlService.insertRecordsCurrent(
-      'Account',
-      records
-    );
-    Test.stopTest();
-
-    System.assertEquals(1, results.size());
-    System.assertEquals(true, results[0].success);
-    System.assertNotEquals(null, results[0].newId);
-    System.assertEquals('001000000000001', results[0].oldId);
+      System.assertEquals(1, results.size());
+      System.assertEquals(true, results[0].success);
+      System.assertNotEquals(null, results[0].newId);
+      System.assertEquals('001000000000001', results[0].oldId);
+    }
   }
 
   @isTest

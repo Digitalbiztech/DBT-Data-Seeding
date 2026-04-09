@@ -8,32 +8,35 @@ private class DataSeedingServiceTest {
 
   @isTest
   static void testFindMatchingRecordsLocal() {
-    List<Map<String, Object>> source = new List<Map<String, Object>>();
+    User adminUser = TestDataFactory.createAdminUser();
+    System.runAs(adminUser) {
+      List<Map<String, Object>> source = new List<Map<String, Object>>();
 
-    Map<String, Object> r1 = new Map<String, Object>();
-    r1.put('Id', 'SourceId1');
-    r1.put('Name', 'MatchMe');
-    source.add(r1);
+      Map<String, Object> r1 = new Map<String, Object>();
+      r1.put('Id', 'SourceId1');
+      r1.put('Name', 'MatchMe');
+      source.add(r1);
 
-    Map<String, Object> r2 = new Map<String, Object>();
-    r2.put('Id', 'SourceId2');
-    r2.put('Name', 'NoMatch');
-    source.add(r2);
+      Map<String, Object> r2 = new Map<String, Object>();
+      r2.put('Id', 'SourceId2');
+      r2.put('Name', 'NoMatch');
+      source.add(r2);
 
-    Test.startTest();
-    // Pass null session/url to use local query
-    List<DataSeedingService.MatchResult> results = DataSeedingService.findMatchingRecords(
-      null,
-      null,
-      'Account',
-      new List<String>{ 'Name' },
-      source
-    );
-    Test.stopTest();
+      Test.startTest();
+      // Pass null session/url to use local query
+      List<DataSeedingService.MatchResult> results = DataSeedingService.findMatchingRecords(
+        null,
+        null,
+        'Account',
+        new List<String>{ 'Name' },
+        source
+      );
+      Test.stopTest();
 
-    System.assertEquals(1, results.size());
-    System.assertEquals('SourceId1', results[0].sourceId);
-    System.assertNotEquals(null, results[0].destId);
+      System.assertEquals(1, results.size());
+      System.assertEquals('SourceId1', results[0].sourceId);
+      System.assertNotEquals(null, results[0].destId);
+    }
   }
 
   @isTest

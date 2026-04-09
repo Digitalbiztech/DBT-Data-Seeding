@@ -2121,7 +2121,7 @@ export default class ExternalOrgQuery extends LightningElement {
 
   get isMatchingUpsertDisabled() {
     return (
-      !this.isDestinationCurrentOrg ||
+      !this.isDestinationConnected ||
       this.isLoading ||
       (!this.hasUnmatchedForCurrent &&
         (!this.currentResult.matchedRows ||

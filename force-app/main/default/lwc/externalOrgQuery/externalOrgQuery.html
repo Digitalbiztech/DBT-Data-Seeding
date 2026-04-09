@@ -852,14 +852,6 @@
                         All records are matched. No import required.
                       </div>
                     </template>
-                    <template if:true={hasUnmatchedForCurrent}>
-                      <template if:false={isDestinationCurrentOrg}>
-                        <div class="slds-text-color_error slds-m-top_x-small">
-                          Import currently supports Destination = Use Current
-                          Org.
-                        </div>
-                      </template>
-                    </template>
                   </template>
 
                   <!-- Step 3: Per-object Import Report -->

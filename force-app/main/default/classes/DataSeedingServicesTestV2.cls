@@ -69,30 +69,33 @@ public class DataSeedingServicesTestV2 {
 
     @isTest
     static void testDataSeedingServiceComprehensive() {
-        Test.setMock(HttpCalloutMock.class, new SeedingMock());
-        
-        Test.startTest();
-        Map<String, Map<String, String>> remap = new Map<String, Map<String, String>>();
-        List<Map<String, Object>> rows = new List<Map<String, Object>>{ new Map<String, Object>{'ProfileId' => 'src_prof_1'} };
-        
-        DataSeedingService.resolveUserProfiles(rows, remap, 's', 'u', 'd', 'u');
-        DataSeedingService.resolveReferences('Account', new Set<String>{'src_acc_1'}, remap, 's', 'u', 'd', 'u');
-        DataSeedingService.findMatchingRecords('s', 'u', 'Account', new List<String>{'Name'}, new List<Map<String, Object>>{ new Map<String, Object>{'Name' => 'MatchMe'} });
-        DataSeedingService.findMatchingRecords(null, null, 'Account', new List<String>{'Name'}, new List<Map<String, Object>>{ new Map<String, Object>{'Name' => 'MatchMe'} });
-        
-        List<Map<String, Object>> tasks = new List<Map<String, Object>>{ new Map<String, Object>{'objectName' => 'Account', 'soql' => 'SELECT Id FROM Account'} };
-        DataSeedingService.startDataSeedingBatch('s', 'u', 'd', 'u', tasks, new Map<String, Map<String, String>>());
-        
-        try { DataSeedingService.getBatchJobStatus('707WG0000000000AAA'); } catch (Exception e) {}
-        try { DataSeedingService.getBatchReport('jobid'); } catch (Exception e) {}
-        DataSeedingService.preprocessRecords('User', rows, 's', 'u', 'd', 'u');
-        
-        // ExternalOrgQueryService coverage
-        try { ExternalOrgQueryService.loginAndQuery('u','p','P','SELECT Id FROM Account'); } catch(Exception e){}
-        try { ExternalOrgQueryService.queryWithSession('s','u','SELECT Id FROM Account'); } catch(Exception e){}
-        try { ExternalOrgQueryService.queryCurrent('SELECT Id FROM Account'); } catch(Exception e){}
-        try { ExternalOrgQueryService.queryByUrl('s','u','/url'); } catch(Exception e){}
-        
-        Test.stopTest();
+        User adminUser = TestDataFactory.createAdminUser();
+        System.runAs(adminUser) {
+            Test.setMock(HttpCalloutMock.class, new SeedingMock());
+            
+            Test.startTest();
+            Map<String, Map<String, String>> remap = new Map<String, Map<String, String>>();
+            List<Map<String, Object>> rows = new List<Map<String, Object>>{ new Map<String, Object>{'ProfileId' => 'src_prof_1'} };
+            
+            DataSeedingService.resolveUserProfiles(rows, remap, 's', 'u', 'd', 'u');
+            DataSeedingService.resolveReferences('Account', new Set<String>{'src_acc_1'}, remap, 's', 'u', 'd', 'u');
+            DataSeedingService.findMatchingRecords('s', 'u', 'Account', new List<String>{'Name'}, new List<Map<String, Object>>{ new Map<String, Object>{'Name' => 'MatchMe'} });
+            DataSeedingService.findMatchingRecords(null, null, 'Account', new List<String>{'Name'}, new List<Map<String, Object>>{ new Map<String, Object>{'Name' => 'MatchMe'} });
+            
+            List<Map<String, Object>> tasks = new List<Map<String, Object>>{ new Map<String, Object>{'objectName' => 'Account', 'soql' => 'SELECT Id FROM Account'} };
+            DataSeedingService.startDataSeedingBatch('s', 'u', 'd', 'u', tasks, new Map<String, Map<String, String>>());
+            
+            try { DataSeedingService.getBatchJobStatus('707WG0000000000AAA'); } catch (Exception e) {}
+            try { DataSeedingService.getBatchReport('jobid'); } catch (Exception e) {}
+            DataSeedingService.preprocessRecords('User', rows, 's', 'u', 'd', 'u');
+            
+            // ExternalOrgQueryService coverage
+            try { ExternalOrgQueryService.loginAndQuery('u','p','P','SELECT Id FROM Account'); } catch(Exception e){}
+            try { ExternalOrgQueryService.queryWithSession('s','u','SELECT Id FROM Account'); } catch(Exception e){}
+            try { ExternalOrgQueryService.queryCurrent('SELECT Id FROM Account'); } catch(Exception e){}
+            try { ExternalOrgQueryService.queryByUrl('s','u','/url'); } catch(Exception e){}
+            
+            Test.stopTest();
+        }
     }
 }
