@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>DataSeedingBatch</members>
+        <members>DataSeedingBatchTest</members>
+        <members>DataSeedingService</members>
+        <members>DataSeedingServiceTest</members>
+        <members>DataSeedingServicesTestV2</members>
+        <members>ExternalOrgAuthService</members>
+        <members>ExternalOrgDescribeService</members>
+        <members>ExternalOrgDmlService</members>
+        <members>ExternalOrgDmlServiceTest</members>
+        <members>ExternalOrgQueryController</members>
+        <members>ExternalOrgQueryControllerTest2</members>
+        <members>ExternalOrgQueryService</members>
+        <members>ExternalOrgServicesComprehensiveTest</members>
+        <members>ExternalOrgServicesTest</members>
+        <members>TestDataFactory</members>
+        <members>UserFieldFilteringTest</members>
+        <name>ApexClass</name>
+    </types>
+    <types>
+        <members>Data_Seed</members>
+        <name>CustomApplication</name>
+    </types>
+    <types>
+        <members>externalOrgQuery</members>
+        <members>externalOrgQueryNode</members>
+        <name>LightningComponentBundle</name>
+    </types>
+    <types>
+        <members>Data_Seeding_Access</members>
+        <name>permissionSet</name>
+    </types>
+    <version>62.0</version>
+</Package>

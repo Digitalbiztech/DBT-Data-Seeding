@@ -1,0 +1,24 @@
+# create package
+sf package create --name Data_Seeding_Unlocked_1 --package-type Unlocked --path force-app
+
+
+# To create package version run this
+# Before this change package version and ansector version
+sfdx force:package:version:create --package Data_Seeding_Unlocked_1 --installation-key-bypass -v pbo --json --code-coverage --wait 30
+
+sfdx force:package:version:create --package Data_Seeding_Unlocked_1 --installation-key-bypass -v pbo --json --wait 30
+
+# then promote the package version
+sf package version promote --package <package_version_id>
+
+# TO create new scratch org run this
+sf org create scratch --set-default --definition-file config/project-scratch-def.json --alias testorg --no-ancestors
+
+# install the package using the extracted SubscriberPackageVersionId
+sf package install --package <> --wait 30
+
+# assign permission set(s)
+sfdx force:user:permset:assign -n Timesheet_HR_Admin -u testorg
+
+# To delete scratch org run this
+sf org delete scratch --target-org testorg --no-prompt

@@ -1,12 +1,34 @@
 {
   "packageDirectories": [
     {
+      "versionName": "ver 0.1",
+      "versionNumber": "0.1.0.NEXT",
       "path": "force-app",
-      "default": true
+      "default": true,
+      "package": "Data_Seeding_Unlocked_1",
+      "versionDescription": ""
+    },
+    {
+      "versionName": "ver 0.1",
+      "versionNumber": "0.1.0.NEXT",
+      "path": "force-app",
+      "default": false,
+      "package": "Data_Seeding",
+      "versionDescription": ""
     }
   ],
   "name": "DBT org",
-  "namespace": "",
+  "namespace": "dbt",
   "sfdcLoginUrl": "https://login.salesforce.com",
-  "sourceApiVersion": "62.0"
+  "sourceApiVersion": "62.0",
+  "packageAliases": {
+    "Data_Seeding_Unlocked": "0HoKb000000sXxOKAU",
+    "Data_Seeding_Unlocked@0.1.0-1": "04tKb0000011NVEIA2",
+    "Data_Seeding_Unlocked@0.1.0-2": "04tKb0000011NVJIA2",
+    "Data_Seeding_Unlocked_1": "0HoKb000000sXxTKAU",
+    "Data_Seeding_Unlocked_1@0.1.0-1": "04tKb0000011NVOIA2",
+    "Data_Seeding_Unlocked_1@0.1.0-2": "04tKb0000011NVTIA2",
+    "Data_Seeding": "0HoKb000000sXxYKAU",
+    "Data_Seeding@0.1.0-1": "04tKb0000011NVYIA2"
+  }
 }
