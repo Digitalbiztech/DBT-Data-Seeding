@@ -18,7 +18,7 @@ sf org create scratch --set-default --definition-file config/project-scratch-def
 sf package install --package <> --wait 30
 
 # assign permission set(s)
-sfdx force:user:permset:assign -n Timesheet_HR_Admin -u testorg
+sfdx force:user:permset:assign -n Data_Seeding_Access -u testorg
 
 # To delete scratch org run this
 sf org delete scratch --target-org testorg --no-prompt

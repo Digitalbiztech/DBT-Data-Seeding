@@ -1,0 +1,125 @@
+Project Metadata
+Namespace: dbt
+Source API Version: 62.0
+
+Package Directories
+Package: Data_Seeding_Unlocked_1
+Path: force-app
+Default: true
+Version Name: ver 0.1
+Version Number: 0.1.0.NEXT
+Version Description:
+
+Package: Data_Seeding
+Path: force-app
+Default: false
+Version Name: ver 0.1
+Version Number: 0.1.0.NEXT
+Version Description:
+
+Package Aliases
+Data_Seeding_Unlocked: 0HoKb000000sXxOKAU
+Data_Seeding_Unlocked@0.1.0-1: 04tKb0000011NVEIA2
+Data_Seeding_Unlocked@0.1.0-2: 04tKb0000011NVJIA2
+Data_Seeding_Unlocked_1: 0HoKb000000sXxTKAU
+Data_Seeding_Unlocked_1@0.1.0-1: 04tKb0000011NVOIA2
+Data_Seeding_Unlocked_1@0.1.0-2: 04tKb0000011NVTIA2
+Data_Seeding: 0HoKb000000sXxYKAU
+Data_Seeding@0.1.0-1: 04tKb0000011NVYIA2
+Data_Seeding_Unlocked_1@0.1.0-3: 04tKb0000011NViIAM
+
+Metadata Components
+
+CustomApplication
+Name: Data_Seed
+Label: Data Seed
+UI Type: Lightning
+Navigation Type: Standard
+Form Factors: Small, Large
+Tabs: standard-home
+Brand Header Color: #0070D2
+Brand Override Org Theme: false
+Is Nav Auto Temp Tabs Disabled: false
+Is Nav Personalization Disabled: false
+Is Nav Tab Persistence Disabled: false
+Is Omni Pinned View Enabled: false
+
+Lightning Web Components
+Component: externalOrgQuery
+API Version: 62.0
+Is Exposed: true
+Targets: lightning__AppPage, lightning__RecordPage, lightning__HomePage
+
+Component: externalOrgQueryNode
+API Version: 59.0
+Is Exposed: false
+
+Apex Classes
+Class: DataSeedingBatch
+API Version: 62.0
+Status: Active
+
+Class: DataSeedingBatchTest
+API Version: 62.0
+Status: Active
+
+Class: DataSeedingService
+API Version: 62.0
+Status: Active
+
+Class: DataSeedingServicesTestV2
+API Version: 62.0
+Status: Active
+
+Class: DataSeedingServiceTest
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgAuthService
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgDescribeService
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgDmlService
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgDmlServiceTest
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgQueryController
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgQueryControllerTest2
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgQueryService
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgServicesComprehensiveTest
+API Version: 62.0
+Status: Active
+
+Class: ExternalOrgServicesTest
+API Version: 62.0
+Status: Active
+
+Class: TestDataFactory
+API Version: 62.0
+Status: Active
+
+Class: UserFieldFilteringTest
+API Version: 62.0
+Status: Active
+
+Permission Sets
+Permission Set: Data_Seeding_Access
+Label: Data Seeding Access
+Has Activation Required: false

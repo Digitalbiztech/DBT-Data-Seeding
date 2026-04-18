@@ -1,0 +1,76 @@
+Add Technical Details
+Tell us about your solution. If a section isn't relevant, click the toggle to disable it.
+Describe Your Solution
+Provide a detailed technical description of your solution and related components.
+The Data Seeding package enables admins to export records from a source Salesforce org and import them into a destination org with relationship resolution and optional matching on key fields. It ships as a Lightning application (Data Seed) and Lightning Web Component (externalOrgQuery) that runs entirely on the Salesforce Platform. The component lets a user connect to a remote Salesforce org (or reuse the current org), discover objects and dependencies, preview SOQL queries, and start an asynchronous seeding job.
+
+Seeding jobs are executed by Apex (DataSeedingBatch and DataSeedingService). The batch queries the source org (local or remote via REST), pages through results, discovers and resolves lookup relationships, performs inserts or updates in the destination org, and writes a CSV report to ContentVersion for download. Queries use WITH SECURITY_ENFORCED where applicable. The UI polls job status and exposes a link to download the generated report.
+
+Key components:
+- Lightning App: Data Seed (form factors Small and Large)
+- LWC: externalOrgQuery (exposed to App, Home, and Record pages) and externalOrgQueryNode (internal helper)
+- Apex classes: DataSeedingService, DataSeedingBatch, ExternalOrgQueryController, ExternalOrgQueryService, ExternalOrgDescribeService, ExternalOrgDmlService, ExternalOrgAuthService, and associated test classes
+- Permission set: Data_Seeding_Access
+- Reporting: CSV report stored as ContentVersion for retrieval by authorized users
+
+Optionally, include links to documentation that you want to share with our reviewers. You can also attach documents on the Upload Documentation page.
+See AppExchange Post-Install Guide.txt included in the package repository for user setup and usage.
+
+If your solution includes or requires a web app or service, list the frameworks and languages that it uses.
+
+Enabled
+Lightning Web Components (JavaScript, HTML, CSS), Apex (Async Apex Batch, callouts), SOQL, Salesforce Metadata. Uses Salesforce Lightning runtime and SLDS styling. Uses REST API callouts to Salesforce when connecting to remote orgs.
+
+If your solution uses any platforms other than Salesforce Platform, list them and describe how they're used. Examples: Heroku, Marketing Cloud.
+
+Enabled
+None. Runs entirely on Salesforce Platform. No Heroku, Marketing Cloud, or other external platforms are required.
+
+If your solution integrates with technology outside the Salesforce Platform, provide details.
+
+Enabled
+Integrates with other Salesforce orgs via authenticated REST API callouts using a session ID and instance URL established by the component. Endpoints include https://login.salesforce.com or https://test.salesforce.com and the destination/source org instance such as https://yourdomain.my.salesforce.com. Remote Site Settings must permit these hosts. No third-party services are used.
+
+Is your solution an API-only app?
+
+Disabled
+
+If your solution contains Salesforce Platform technology, such as Lightning Components and Apex, provide details.
+
+Enabled
+Lightning Components: externalOrgQuery (exposed to App Page, Home Page, and Record Page), externalOrgQueryNode (not exposed). Apex: DataSeedingService (batch orchestration, matching, reporting), DataSeedingBatch (Database.Batchable, Stateful, AllowsCallouts), ExternalOrgQueryController (AuraEnabled endpoints for the LWC), ExternalOrgQueryService (query helpers, local and remote), ExternalOrgDescribeService (reference field discovery), ExternalOrgDmlService (insert and update helpers), ExternalOrgAuthService (connection testing). Lightning App: Data Seed. Permission Set: Data_Seeding_Access.
+
+If your solution stores any Salesforce OAuth tokens or other access tokens, describe how the tokens are stored.
+
+Enabled
+No persistent token storage. The component uses a session ID and instance URL for the duration of a user session to perform remote org queries. Session values are held transiently in component state and sent to Apex only to complete the requested action. Tokens are not written to Custom Settings, Custom Metadata, Files, or any external system.
+
+If your solution stores any Salesforce data outside the Salesforce Platform, list all types of stored data, and describe where and how the data is stored.
+
+Enabled
+No Salesforce data is stored outside the Salesforce Platform. Seeding reports are saved as ContentVersion within the destination org and are accessible to users with Files permissions. Runtime state (such as ID remapping caches and logs) resides in memory during batch execution and is not persisted externally.
+
+Does your solution use Japanese text in any of its components, such as on-screen labels?
+
+Disabled
+
+Mobile App
+Is your solution available as a mobile app?
+
+Enabled
+Not a standalone mobile app. The Lightning Web Component is responsive and supported within the Salesforce mobile app when placed on supported Lightning pages.
+
+What mobile devices or operating systems does your app support?
+
+Enabled
+Salesforce mobile app on iOS and Android. Works in Mobile Safari and Chrome via the Salesforce mobile container. The packaged Lightning app supports Small and Large form factors.
+
+If your solution includes a browser extension, provide a public or direct download link, such as a link to the extension's Chrome Web Store or Apple App Store page.
+
+Enabled
+None. No browser extension is included or required.
+
+If your solution includes a desktop or client app, provide details.
+
+Enabled
+None. No desktop or native client application is included or required.

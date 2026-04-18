@@ -1,0 +1,196 @@
+Data Seeding Project - Detailed Usage Instructions
+
+Purpose
+This document describes how to install, configure, and use the Data Seeding project. It also lists prerequisites and common errors with resolution steps.
+
+Prerequisites
+1) Salesforce CLI installed. Either the new sf CLI or legacy sfdx CLI.
+   Recommended: sf CLI v2 or later.
+2) Access to Salesforce orgs:
+   - A target org to deploy to or install the package into.
+   - Optional Dev Hub enabled org if you plan to create or promote package versions or create scratch orgs.
+3) User permissions in the target org:
+   - API Enabled
+   - Modify Metadata or deploy permissions (for source deploy)
+   - Assign Permission Sets
+   - Read and Create on ContentVersion (to generate and retrieve the seeding report)
+   - Object and field level permissions on objects you will seed
+4) Optional for packaging and scratch orgs:
+   - Dev Hub login set in sf or sfdx (for example alias pbo)
+   - Scratch org definition file present at config/project-scratch-def.json
+5) Network and security
+   - Allowlist IPs or use a security token when logging in with username and password from the LWC
+   - Ensure remote orgs permit API login
+
+Project Components Summary
+Application: Data Seed (Lightning app)
+LWC Components: externalOrgQuery (exposed), externalOrgQueryNode (internal)
+Apex: DataSeedingService, DataSeedingBatch and supporting services and tests
+Permission Set: Data_Seeding_Access
+Packages: Data_Seeding_Unlocked_1 (unlocked package), Data_Seeding (package name placeholder)
+Source Path: force-app
+Source API Version: 62.0
+
+Installation Options
+Option A: Deploy source to an org
+1) Authenticate to the target org
+   sf org login web --alias myTarget
+2) Deploy source
+   sf project deploy start --target-org myTarget
+3) Assign permission set
+   sfdx force:user:permset:assign -n Data_Seeding_Access -u myTarget
+4) Open the org
+   sf org open --target-org myTarget
+
+Option B: Install unlocked package into an org
+1) Identify a promoted SubscriberPackageVersionId (starts with 04t). If you maintain versions, promote first.
+   sf package version promote --package <package_version_id>
+2) Authenticate to the target org
+   sf org login web --alias myTarget
+3) Install the package (replace with your 04t id or a version alias)
+   sf package install --package 04tXXXXXXXXXXXX --target-org myTarget --wait 30
+4) Assign permission set
+   sfdx force:user:permset:assign -n Data_Seeding_Access -u myTarget
+5) Open the org
+   sf org open --target-org myTarget
+
+Packaging and Scratch Org (for maintainers)
+1) Create package once (if not already created)
+   sf package create --name Data_Seeding_Unlocked_1 --package-type Unlocked --path force-app
+2) Create a package version
+   sfdx force:package:version:create --package Data_Seeding_Unlocked_1 --installation-key-bypass -v pbo --json --wait 30
+   or with code coverage
+   sfdx force:package:version:create --package Data_Seeding_Unlocked_1 --installation-key-bypass -v pbo --json --code-coverage --wait 30
+3) Promote the version for installation in production orgs
+   sf package version promote --package <package_version_id>
+4) Create a scratch org (optional for development and testing)
+   sf org create scratch --set-default --definition-file config/project-scratch-def.json --alias testorg --no-ancestors
+5) Install the package in the scratch org
+   sf package install --package 04tXXXXXXXXXXXX --wait 30 --target-org testorg
+6) Assign permission set in the scratch org
+   sfdx force:user:permset:assign -n Data_Seeding_Access -u testorg
+7) Delete scratch org when done
+   sf org delete scratch --target-org testorg --no-prompt
+
+Post Installation Setup in the Org
+1) Grant access
+   Assign the Data_Seeding_Access permission set to each user who will run data seeding or use the app and components.
+2) Make the LWC available
+   The externalOrgQuery component is exposed to App Page, Record Page, and Home Page.
+   Add it via App Builder:
+   - Setup, App Builder, create a new Lightning App Page or open an existing page
+   - Drag External Org Query onto the canvas
+   - Save and Activate for the desired apps and profiles
+3) Access the Lightning app
+   Use the App Launcher and open the application named Data Seed.
+
+How To Use The LWC UI
+Source and Destination org setup
+1) Source org section
+   - Choose Use Current Org if the source is the same org
+   - Or enter Username and Password and choose the Environment (Production or Sandbox) for a remote source org
+   - Click Test Connection to verify credentials; a session and instance URL are stored if successful
+2) Destination org section
+   - Choose Use Current Org if the destination is the same org
+   - Or enter credentials and environment for a remote destination org
+   - Click Test Destination Connection to verify
+
+Object discovery and plan
+3) Discover available objects and dependencies
+   - Use Search Objects to select the root object to export from the source
+   - Configure dependency depth, exclude objects where needed, and review the dependency tree
+4) Fields and required fields
+   - Use get required fields actions to ensure mandatory fields are included for insert or update
+   - Review createable fields before attempting insert into destination
+
+Query and preview
+5) SOQL
+   - Enter SOQL such as SELECT Id, Name FROM Account LIMIT 10 and click Run Query to validate access and data shape
+   - Adjust fields and limits as needed
+
+Data import and seeding
+6) Start data import
+   - Choose whether to insert new or update existing records
+   - Use the seeding action to start a batch job that handles pagination, reference resolution, and inserts or updates in the destination org
+7) Monitor progress
+   - The component polls the batch job status and displays progress
+   - When complete, download the seeding report produced as a file; ensure users have permission to read ContentVersion
+
+Apex Based Usage (optional, for admins and developers)
+1) Prepare tasks and plan edges in Apex
+   Example
+   List<Map<String, Object>> tasks = new List<Map<String, Object>>();
+   Map<String, Object> t = new Map<String, Object>();
+   t.put('objectName', 'Account');
+   t.put('soql', 'SELECT Id, Name, OwnerId FROM Account LIMIT 100');
+   t.put('fields', new List<String>{ 'Id', 'Name', 'OwnerId' });
+   tasks.add(t);
+   Map<String, Map<String, String>> planEdges = new Map<String, Map<String, String>>();
+   planEdges.put('Account', new Map<String, String>{ 'OwnerId' => 'User' });
+2) Start the batch
+   Use current org to current org
+   String jobId = DataSeedingService.startDataSeedingBatch(null, null, null, null, tasks, planEdges);
+   Or with external orgs, pass sessionId and instanceUrl for source and or destination
+3) Monitor status
+   AsyncApexJob job = DataSeedingService.getBatchJobStatus(jobId);
+4) Retrieve the report when complete
+   String csv = DataSeedingService.getBatchReport(jobId);
+
+User Access and Permissions
+1) Assign Data_Seeding_Access to seeding users
+2) Ensure CRUD and FLS on all involved objects and fields for the running user
+3) Ensure Files permission to retrieve ContentVersion reports
+
+Common Errors And Resolutions
+1) INVALID_LOGIN or invalid session
+   Cause: Wrong username or password, missing security token, wrong environment
+   Fix: Append security token to password for Production or if IP not allowlisted; verify environment selection; confirm credentials
+2) API_DISABLED
+   Cause: Profile lacks API Enabled
+   Fix: Enable API Enabled on the user profile or assign a permission set with API Enabled
+3) INSUFFICIENT_ACCESS or INVALID_FIELD_FOR_INSERT_UPDATE
+   Cause: Missing CRUD or FLS on objects or fields, or field not createable
+   Fix: Update profile or permission sets; use get createable fields to select allowed fields
+4) REQUIRED_FIELD_MISSING
+   Cause: Destination requires fields not present in payload
+   Fix: Include required fields in the fields list; use get required fields and add them; ensure reference fields have valid values
+5) Reference resolution failures
+   Cause: Parent records not present in destination and cannot be matched
+   Fix: Increase dependency depth to include parents, or provide plan edges indicating which lookup fields map to which objects, or seed parent objects first
+6) Mixed DML error involving setup objects like User and Profile
+   Cause: Attempting to perform DML on setup and non setup objects in same transaction
+   Fix: Seed setup objects in a separate step; the batch is asynchronous but if you still hit Mixed DML, split into phases
+7) LIMIT_EXCEEDED such as CPU, heap, query rows, or callouts
+   Cause: Very large queries or payloads
+   Fix: Reduce export limit, split objects, filter SOQL, or run multiple narrower batches
+8) AsyncApexJob not found or report not available
+   Cause: Job still running or report not created yet; user lacks Files permission
+   Fix: Wait and retry; ensure ContentVersion create and read permissions; verify no org level content restrictions
+9) Package installation failed due to dependencies or version not promoted
+   Cause: Dependent packages or features missing; version not promoted for production install
+   Fix: Install dependencies first; promote package version; install in sandbox to validate
+10) sf or sfdx command fails with alias not found
+   Cause: Dev Hub alias pbo or target alias not authenticated
+   Fix: Authenticate again using sf org login web -a <alias> and retry
+
+Verification And Testing
+1) Run Apex tests to validate
+   sfdx force:apex:test:run -u myTarget -r human -w 30
+2) Manual verification
+   - Open Data Seed app
+   - Place the External Org Query component on a page and perform a small seed with a low limit
+   - Check results and the generated report
+
+Uninstall Or Cleanup
+1) Remove the package (if installed)
+   sf package uninstall --package 04tXXXXXXXXXXXX --target-org myTarget --wait 30
+2) Remove the app page placement if you added the LWC to pages
+3) Revoke permission set from users if no longer needed
+4) Delete scratch orgs if used
+   sf org delete scratch --target-org testorg --no-prompt
+
+Support And Maintenance
+1) Keep Salesforce CLI up to date
+2) Keep package versions promoted and documented
+3) Review object and field permissions after Salesforce releases or org changes
+4) Monitor governor limits during large seeding operations and adjust batch scope and filters

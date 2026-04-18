@@ -1,0 +1,52 @@
+1. Head Quarter Location, Employee Count and ARR (Annual Recurring Revenue):
+[PLACEHOLDER] - 
+
+2. Brief Company Description: 
+[PLACEHOLDER] - 
+
+3. What is the goal of launching this application on the AppExchange?: 
+To provide Salesforce administrators and developers with a robust, free tool for data seeding between orgs, allowing them to easily migrate relational data (like testing or sandbox data) while automatically maintaining complex parent-child relationships, thereby showcasing our technical expertise and generating leads for our consulting services.
+
+4. What is driving your strategy to list this solution as free?: 
+We want to give back to the Salesforce developer and admin community by providing a much-needed utility for sandbox data seeding, while also building brand awareness and trust that may lead to future consulting or premium service engagements.
+
+5. How will this solution enhance your business?: 
+By offering a high-quality free tool, we will increase our visibility within the Salesforce ecosystem, capture inbound leads, and establish ourselves as experts in complex Salesforce data architectures and integrations.
+
+6. Can the end-user install and use 100% of the application's functionality without the purchase of your core product or third-party integration?: 
+Yes, the application is fully functional natively within Salesforce as a standalone data seeding utility.
+
+7. Does the end-user who will be installing this solution off of the AppExchange need to be an existing customer of yours?: 
+No.
+
+8. How do you charge existing customers for your services?: 
+[PLACEHOLDER] - 
+
+9. What other fees do you charge customers?: 
+[PLACEHOLDER] - 
+
+10. What current solutions do you offer and how do you charge for these?: 
+[PLACEHOLDER] - 
+
+11. Does this solution contain any Agentforce agents or actions?: 
+No.
+
+12. Are you intending to extract data from Salesforce to enrich your application?: 
+The application extracts data from a designated "Source" Salesforce org purely to seed it into a "Destination" Salesforce org chosen by the user. The data is processed within the Salesforce platform (using callouts between the orgs) and is not extracted to any external proprietary databases or used to enrich our own systems.
+
+13. Is your app using an AI engine, and if so, which one?: 
+No.
+
+14. Please list what other Salesforce technology is of value to your app: 
+UI (Lightning Web Components), Business Logic (Apex Services, Batch Apex), APIs to connect an external app (Salesforce Composite API, REST/SOAP Callouts for cross-org communication).
+
+15. Is your business primarily a Services/Implementation business?: 
+[PLACEHOLDER] - 
+
+16. How are you planning to drive the sale of your application?: 
+As it is a free application, we will drive adoption through community engagement (Salesforce community groups, developer blogs, LinkedIn) and by cross-promoting it to clients during our consulting engagements.
+
+17. What is your revenue target (including number of customers) for this year from the sale of this proposed app?: 
+
+
+18. Do you have any immediate customer deals in the pipeline (30 days) for this application?: 

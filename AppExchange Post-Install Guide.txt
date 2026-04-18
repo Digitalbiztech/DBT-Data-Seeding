@@ -1,0 +1,127 @@
+Data Seeding for Salesforce - AppExchange Post-Install Guide
+
+Overview
+This guide explains how to use the Data Seeding package in your Salesforce org after installing it from AppExchange. It covers prerequisites, setup, how to place and use the Lightning component, how to run seeding jobs, how to monitor results, and how to resolve common issues.
+
+Requirements
+1) User profile or permission set with API Enabled.
+2) Assign the included permission set Data_Seeding_Access to each user who will use the app or component.
+3) CRUD and Field-Level Security on all objects and fields you plan to seed.
+4) Files access to read and download ContentVersion for seeding reports.
+5) If connecting to another Salesforce org as a 'source' or 'destination', ensure login access:
+   - Use a username and password (append the user's Security Token to the password) that works for API login.
+6) If connecting to an external Salesforce org from this org, add Remote Site Settings where required:
+   - Add entries for https://login.salesforce.com and https://test.salesforce.com as applicable.
+   - Add an entry for the external org instance URL (for example, https://yourco.my.salesforce.com).
+
+What Gets Installed
+1) Lightning App: Data Seed
+2) Lightning Web Components:
+   - externalOrgQuery (exposed to App, Home, and Record Pages)
+   - externalOrgQueryNode (internal helper, not exposed)
+3) Apex Services used by the component to query, match, and seed data, and to generate a downloadable report.
+4) Permission Set: Data_Seeding_Access
+
+Initial Setup After Install
+1) Assign permission set Data_Seeding_Access to users who will run data seeding.
+2) Confirm required object permissions for your seeding scope (read on source objects, create or update on destination objects, plus any required lookup parents).
+3) If you will connect to another Salesforce org, create Remote Site Settings for the external hosts as described in Requirements.
+4) Verify Files access (read and download) so users can retrieve the generated seeding report file.
+
+Accessing The App
+1) Open the App Launcher.
+2) Launch the app named Data Seed.
+3) You can use the app directly, or place the component on a Lightning App Page, Home Page, or a specific Record Page via the Lightning App Builder.
+
+Placing The Component On A Page (optional)
+1) Go to Setup, then Lightning App Builder.
+2) Create a new Lightning App Page, or edit an existing App, Home, or Record Page.
+3) Drag External Org Query onto the canvas.
+4) Save and Activate the page for the desired apps, org default, and user profiles.
+
+Using The Component: Same-Org Seeding
+Use this when the source and destination are the same org (for example, to duplicate sample records or reinsert data in this org).
+1) In the Source Org section, set Use Current Org to Yes.
+2) In the Destination Org section, set Use Current Org to Yes.
+3) Select or search for a root object to export (for example, Account).
+4) Configure dependency depth and exclude any objects you do not want to include.
+5) Ensure required fields are included for inserts or updates.
+6) Enter or generate SOQL to preview a small sample (for example, SELECT Id, Name FROM Account LIMIT 10) and confirm results.
+7) Start seeding:
+   - Choose insert or update as appropriate.
+   - The package runs an asynchronous batch that handles pagination, reference resolution, and data writes.
+8) Monitor progress within the component. When finished, download the generated report file for details.
+
+Using The Component: Cross-Org Seeding
+Use this when the source org is different from the destination org.
+1) Source Org section:
+   - If using a remote source, enter Username and Password. Choose Environment: Production or Sandbox.
+   - Click Test Connection. On success, the component stores a session and instance URL.
+   - If the source is this org, set Use Current Org to Yes instead of logging in.
+2) Destination Org section:
+   - If using a remote destination, enter Destination Username and Password and choose the environment.
+   - Click Test Destination Connection.
+   - If the destination is this org, set Use Current Org to Yes instead of logging in.
+3) Object selection and planning:
+   - Search and select the root object to export from the source.
+   - Adjust dependency depth and exclusions. Include parent objects required by lookup fields.
+   - Review or fetch required and createable fields.
+4) Preview your SOQL or use the helper actions to construct it. Validate with a small LIMIT.
+5) Start the seeding job. The batch process queries the source org, resolves reference relationships, and writes to the destination org.
+6) Monitor progress and download the report when complete.
+
+Monitoring And Reports
+1) The component displays batch job status during processing.
+2) When complete, a report file is generated and stored as a ContentVersion. Use the Download link provided in the UI.
+3) Ensure users have permission to read and download Files; otherwise, report retrieval will fail.
+
+Data Preparation Tips
+1) Start with small LIMIT values to validate mappings and field access.
+2) Increase dependency depth if you see missing lookup references (for example, OwnerId, AccountId, or custom lookups).
+3) Include required fields for the destination object and for any parent objects created in the same run.
+4) Consider running separate passes for very large data sets or for objects with mixed DML constraints (for example, User or Profile related data).
+
+Common Errors And Resolutions
+1) Invalid login or invalid session
+   Cause: Wrong credentials, wrong environment, or missing security token.
+   Fix: Verify Production vs Sandbox, append the user's Security Token to the password if IP ranges are not allowlisted, and retry Test Connection.
+2) API disabled
+   Cause: The user's profile does not have API Enabled.
+   Fix: Enable API Enabled or assign a permission set that grants API access.
+3) Insufficient access or invalid field for insert/update
+   Cause: Missing CRUD or FLS, or field is not createable/updateable.
+   Fix: Grant the needed object and field permissions. Limit fields to those that are createable/updateable.
+4) Required field missing
+   Cause: The destination requires additional fields not present in the payload.
+   Fix: Add the required fields to your selection or include them in the SOQL and payload configuration.
+5) Reference resolution failures
+   Cause: Parent records do not exist in the destination and cannot be matched.
+   Fix: Increase dependency depth to include parents, seed parent objects first, or configure matching fields so parents can be found.
+6) Mixed DML error
+   Cause: Setup objects such as User and Profile are combined with standard or custom objects in one transaction.
+   Fix: Seed setup objects separately from non-setup objects.
+7) Governor limit exceeded (CPU, heap, query rows, or callouts)
+   Cause: Very large queries or payloads executed in one batch.
+   Fix: Reduce SOQL result size, use smaller LIMITs, run multiple batches, or narrow filters.
+8) Report not available
+   Cause: Job not finished yet, or user lacks Files access.
+   Fix: Wait until the job shows completed. Ensure Files read access and try again.
+9) Remote Site setting missing
+   Cause: Callouts to https://login.salesforce.com, https://test.salesforce.com, or the external instance URL are not allowed.
+   Fix: Add Remote Site Settings for each external host you call.
+
+Uninstall
+1) Remove the component from any Lightning pages where it is placed.
+2) Revoke the Data_Seeding_Access permission set from users.
+3) Uninstall the package from Setup, Installed Packages.
+4) Optional: Remove any Remote Site Settings you added for this package.
+
+Support
+1) Provide a short description of the scenario and the source and destination org types (Production or Sandbox).
+2) Include any error messages from the component UI.
+3) If a batch ran, include the Job ID and, if available, the downloaded report.
+4) Include object names and approximate record counts you attempted to seed.
+
+Version And Compatibility
+1) Source API version used by this package: 62.0.
+2) Supports Lightning Experience. Recommend using a profile with modern UI permissions.
