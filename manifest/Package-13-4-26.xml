@@ -32,5 +32,9 @@
         <members>Data_Seeding_Access</members>
         <name>permissionSet</name>
     </types>
+    <types>
+        <members>External_SOQL_Runner</members>
+        <name>CustomTab</name>
+    </types>
     <version>62.0</version>
 </Package>

@@ -12,6 +12,6 @@
     <isOmniPinnedViewEnabled>false</isOmniPinnedViewEnabled>
     <label>Data Seed</label>
     <navType>Standard</navType>
-    <tabs>standard-home</tabs>
+    <tabs>External_SOQL_Runner</tabs>
     <uiType>Lightning</uiType>
 </CustomApplication>
