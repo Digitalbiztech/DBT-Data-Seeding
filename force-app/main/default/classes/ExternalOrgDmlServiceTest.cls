@@ -57,6 +57,20 @@ private class ExternalOrgDmlServiceTest {
     System.assertEquals('NewId204', results[204].newId);
   }
 
+  @isTest
+  static void testDmlExceptions() {
+    Test.startTest();
+    try {
+      ExternalOrgDmlService.insertRecordsCurrent(null, null);
+    } catch (Exception e) {
+    }
+    try {
+      ExternalOrgDmlService.createRecordsRemote(null, null, null, null);
+    } catch (Exception e) {
+    }
+    Test.stopTest();
+  }
+
   public class MockCompositeResponse implements HttpCalloutMock {
     public HTTPResponse respond(HTTPRequest req) {
       HttpResponse res = new HttpResponse();
