@@ -8,7 +8,9 @@ private class UserFieldFilteringTest {
     // normally be accepted but should now be skipped.
 
     List<Profile> profiles = [SELECT Id FROM Profile LIMIT 1];
-    String validProfileId = profiles.isEmpty() ? '00e000000000001' : (String)profiles[0].Id;
+    String validProfileId = profiles.isEmpty()
+      ? '00e000000000001'
+      : (String) profiles[0].Id;
 
     List<Map<String, Object>> records = new List<Map<String, Object>>();
     Map<String, Object> r1 = new Map<String, Object>();
@@ -38,7 +40,9 @@ private class UserFieldFilteringTest {
     if (!results[0].success) {
       String msg = results[0].errorMessage.toLowerCase();
       System.assert(
-        msg.contains('required field') || msg.contains('profile') || msg.contains('invalid cross reference id'),
+        msg.contains('required field') ||
+          msg.contains('profile') ||
+          msg.contains('invalid cross reference id'),
         'Error message: ' + results[0].errorMessage
       );
     }

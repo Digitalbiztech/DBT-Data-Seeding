@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8" ?>
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
     <applicationVisibilities>
         <application>Data_Seed</application>
@@ -32,7 +32,8 @@
         <apexClass>ExternalOrgQueryService</apexClass>
         <enabled>true</enabled>
     </classAccesses>
-    <description>Provides full access to the Data Seeding application, including its LWC components and Apex services.</description>
+    <description
+  >Provides full access to the Data Seeding application, including its LWC components and Apex services.</description>
     <hasActivationRequired>false</hasActivationRequired>
     <label>Data Seeding Access</label>
     <tabSettings>

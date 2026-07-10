@@ -961,9 +961,11 @@
                                 </template>
                                 <template if:false={e.sourceUrl}>
                                   {e.oldId}
-                                </template>
-                              </strong>: {e.errorMessage}
-                              <template if:true={e.type}><span>({e.type})</span></template>
+                                </template> </strong
+                              >: {e.errorMessage}
+                              <template if:true={e.type}
+                                ><span>({e.type})</span></template
+                              >
                               <template if:true={e.rawError}>
                                 <lightning-button-icon
                                   icon-name="utility:info"

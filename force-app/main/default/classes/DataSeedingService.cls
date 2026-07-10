@@ -26,7 +26,9 @@ public with sharing class DataSeedingService {
 
       // B6: Validate Object Name and Field Names against SOQL injection
       if (!Pattern.matches('^[a-zA-Z0-9_]+$', objectName)) {
-        throw new IllegalArgumentException('Invalid object name: ' + objectName);
+        throw new IllegalArgumentException(
+          'Invalid object name: ' + objectName
+        );
       }
       for (String f : matchFields) {
         if (!Pattern.matches('^[a-zA-Z0-9_]+$', f)) {

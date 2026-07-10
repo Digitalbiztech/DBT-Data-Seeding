@@ -190,28 +190,36 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
     // DYNAMICALLY DISCOVER REFERENCES
     // This ensures we catch standard lookups (AccountId, OwnerId, etc.) even if the user excluded the parent object from the Plan.
     try {
-        Map<String, String> discoveredRefs;
-        if (String.isNotBlank(sourceSessionId) && String.isNotBlank(sourceInstanceUrl)) {
-             discoveredRefs = ExternalOrgDescribeService.getReferenceFields(sourceSessionId, sourceInstanceUrl, objectName);
-        } else {
-             // Fallback: use local describe if source is current
-             // For now, let's just skip or implement local describe if needed. 
-             // But usually we have source session or we are running local-to-remote.
-             // If running local-to-local, we can use Schema.getGlobalDescribe().
-             if (String.isBlank(sourceSessionId)) { // Local source
-                 discoveredRefs = getLocalReferenceFields(objectName);
-             }
+      Map<String, String> discoveredRefs;
+      if (
+        String.isNotBlank(sourceSessionId) &&
+        String.isNotBlank(sourceInstanceUrl)
+      ) {
+        discoveredRefs = ExternalOrgDescribeService.getReferenceFields(
+          sourceSessionId,
+          sourceInstanceUrl,
+          objectName
+        );
+      } else {
+        // Fallback: use local describe if source is current
+        // For now, let's just skip or implement local describe if needed.
+        // But usually we have source session or we are running local-to-remote.
+        // If running local-to-local, we can use Schema.getGlobalDescribe().
+        if (String.isBlank(sourceSessionId)) {
+          // Local source
+          discoveredRefs = getLocalReferenceFields(objectName);
         }
-        
-        if (discoveredRefs != null) {
-            for (String f : discoveredRefs.keySet()) {
-                if (!refFields.containsKey(f)) {
-                    refFields.put(f, discoveredRefs.get(f));
-                }
-            }
+      }
+
+      if (discoveredRefs != null) {
+        for (String f : discoveredRefs.keySet()) {
+          if (!refFields.containsKey(f)) {
+            refFields.put(f, discoveredRefs.get(f));
+          }
         }
+      }
     } catch (Exception e) {
-        System.debug('Failed to discover dynamic references: ' + e.getMessage());
+      System.debug('Failed to discover dynamic references: ' + e.getMessage());
     }
 
     if (objectName == 'User') {
@@ -512,8 +520,8 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
       String name = (String) r.get('Name');
       String id = (String) r.get('Id');
       if (name != null) {
-          nameToSourceId.put(name.toLowerCase(), id);
-          names.add('\'' + String.escapeSingleQuotes(name) + '\'');
+        nameToSourceId.put(name.toLowerCase(), id);
+        names.add('\'' + String.escapeSingleQuotes(name) + '\'');
       }
     }
 
@@ -547,10 +555,10 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
       String name = (String) r.get('Name');
       String destId = (String) r.get('Id');
       if (name != null) {
-          String key = name.toLowerCase();
-          if (nameToSourceId.containsKey(key)) {
-            profileMap.put(nameToSourceId.get(key), destId);
-          }
+        String key = name.toLowerCase();
+        if (nameToSourceId.containsKey(key)) {
+          profileMap.put(nameToSourceId.get(key), destId);
+        }
       }
     }
   }
@@ -625,8 +633,13 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
 
     if (matchValues.isEmpty())
       return;
-    
-    System.debug('resolveReferences: Looking for ' + matchValues.size() + ' values in ' + refObj);
+
+    System.debug(
+      'resolveReferences: Looking for ' +
+        matchValues.size() +
+        ' values in ' +
+        refObj
+    );
 
     // 2. Query Destination for Ids matching Match Values
     String destSoql =
@@ -665,8 +678,12 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
 
     if (destRes == null || destRes.rows == null)
       return;
-      
-    System.debug('resolveReferences: Found ' + destRes.rows.size() + ' potential matches in destination.');
+
+    System.debug(
+      'resolveReferences: Found ' +
+        destRes.rows.size() +
+        ' potential matches in destination.'
+    );
 
     // 3. Update idRemap
     if (!this.idRemap.containsKey(refObj)) {
@@ -686,27 +703,27 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
       }
     }
   }
-  
+
   @TestVisible
   private Map<String, String> getLocalReferenceFields(String objectName) {
-      Map<String, String> refs = new Map<String, String>();
-      try {
-          Schema.SObjectType t = Schema.getGlobalDescribe().get(objectName);
-          if (t != null) {
-              Schema.DescribeSObjectResult d = t.getDescribe();
-              for (Schema.SObjectField f : d.fields.getMap().values()) {
-                  Schema.DescribeFieldResult fd = f.getDescribe();
-                  if (fd.getType() == Schema.DisplayType.REFERENCE) {
-                      List<Schema.SObjectType> rTo = fd.getReferenceTo();
-                      if (rTo != null && !rTo.isEmpty()) {
-                          refs.put(fd.getName(), rTo[0].getDescribe().getName());
-                      }
-                  }
-              }
+    Map<String, String> refs = new Map<String, String>();
+    try {
+      Schema.SObjectType t = Schema.getGlobalDescribe().get(objectName);
+      if (t != null) {
+        Schema.DescribeSObjectResult d = t.getDescribe();
+        for (Schema.SObjectField f : d.fields.getMap().values()) {
+          Schema.DescribeFieldResult fd = f.getDescribe();
+          if (fd.getType() == Schema.DisplayType.REFERENCE) {
+            List<Schema.SObjectType> rTo = fd.getReferenceTo();
+            if (rTo != null && !rTo.isEmpty()) {
+              refs.put(fd.getName(), rTo[0].getDescribe().getName());
+            }
           }
-      } catch (Exception e) {
-          System.debug('Error getting local refs: ' + e.getMessage());
+        }
       }
-      return refs;
+    } catch (Exception e) {
+      System.debug('Error getting local refs: ' + e.getMessage());
+    }
+    return refs;
   }
 }

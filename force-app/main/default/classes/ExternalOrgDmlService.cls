@@ -36,7 +36,8 @@ public with sharing class ExternalOrgDmlService {
       List<String> oldIds = new List<String>();
       List<String> inputNames = new List<String>();
 
-      Map<String, Schema.SObjectField> fieldMap = t.getDescribe().fields.getMap();
+      Map<String, Schema.SObjectField> fieldMap = t.getDescribe()
+        .fields.getMap();
       Map<String, Schema.SObjectField> lowFieldMap = new Map<String, Schema.SObjectField>();
       for (String k : fieldMap.keySet()) {
         lowFieldMap.put(k.toLowerCase(), fieldMap.get(k));
@@ -74,7 +75,11 @@ public with sharing class ExternalOrgDmlService {
       Database.DMLOptions dml = new Database.DMLOptions();
       dml.DuplicateRuleHeader.allowSave = true;
       dml.OptAllOrNone = false;
-      Database.SaveResult[] results = Database.insert(toInsert, dml, AccessLevel.USER_MODE);
+      Database.SaveResult[] results = Database.insert(
+        toInsert,
+        dml,
+        AccessLevel.USER_MODE
+      );
       String baseUrl = URL.getOrgDomainUrl().toExternalForm();
 
       for (Integer i = 0; i < results.size(); i++) {
@@ -132,7 +137,8 @@ public with sharing class ExternalOrgDmlService {
       List<String> targetIds = new List<String>();
       List<String> inputNames = new List<String>();
 
-      Map<String, Schema.SObjectField> fieldMap = t.getDescribe().fields.getMap();
+      Map<String, Schema.SObjectField> fieldMap = t.getDescribe()
+        .fields.getMap();
       Map<String, Schema.SObjectField> lowFieldMap = new Map<String, Schema.SObjectField>();
       for (String k : fieldMap.keySet()) {
         lowFieldMap.put(k.toLowerCase(), fieldMap.get(k));
@@ -174,7 +180,11 @@ public with sharing class ExternalOrgDmlService {
       Database.DMLOptions dml = new Database.DMLOptions();
       dml.DuplicateRuleHeader.allowSave = true;
       dml.OptAllOrNone = false;
-      Database.SaveResult[] results = Database.update(toUpdate, dml, AccessLevel.USER_MODE);
+      Database.SaveResult[] results = Database.update(
+        toUpdate,
+        dml,
+        AccessLevel.USER_MODE
+      );
       String baseUrl = URL.getOrgDomainUrl().toExternalForm();
 
       for (Integer i = 0; i < results.size(); i++) {
@@ -407,7 +417,10 @@ public with sharing class ExternalOrgDmlService {
       try {
         sobj.put(key, val);
       } catch (Exception e) {
-        System.debug(LoggingLevel.WARN, 'safePut error on key ' + key + ': ' + e.getMessage());
+        System.debug(
+          LoggingLevel.WARN,
+          'safePut error on key ' + key + ': ' + e.getMessage()
+        );
       }
       return;
     }
@@ -418,7 +431,10 @@ public with sharing class ExternalOrgDmlService {
       try {
         sobj.put(key, val);
       } catch (Exception e) {
-        System.debug(LoggingLevel.WARN, 'safePut error on key ' + key + ': ' + e.getMessage());
+        System.debug(
+          LoggingLevel.WARN,
+          'safePut error on key ' + key + ': ' + e.getMessage()
+        );
       }
       return;
     }
@@ -451,7 +467,10 @@ public with sharing class ExternalOrgDmlService {
         sobj.put(field, val);
       }
     } catch (Exception e) {
-      System.debug(LoggingLevel.WARN, 'safePut error on key ' + key + ': ' + e.getMessage());
+      System.debug(
+        LoggingLevel.WARN,
+        'safePut error on key ' + key + ': ' + e.getMessage()
+      );
     }
   }
 }

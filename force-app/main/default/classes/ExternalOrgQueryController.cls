@@ -268,20 +268,33 @@ public with sharing class ExternalOrgQueryController {
     List<Map<String, Object>> records
   ) {
     try {
-        List<Map<String, Object>> processed = DataSeedingService.preprocessRecords(
-            objectName, records, 
-            sourceSessionId, sourceInstanceUrl, 
-            destSessionId, destInstanceUrl
-        );
+      List<Map<String, Object>> processed = DataSeedingService.preprocessRecords(
+        objectName,
+        records,
+        sourceSessionId,
+        sourceInstanceUrl,
+        destSessionId,
+        destInstanceUrl
+      );
 
-        if (String.isNotBlank(destSessionId) && String.isNotBlank(destInstanceUrl)) {
-            return ExternalOrgDmlService.createRecordsRemote(destSessionId, destInstanceUrl, objectName, processed);
-        } else {
-            return ExternalOrgDmlService.insertRecordsCurrent(objectName, processed);
-        }
+      if (
+        String.isNotBlank(destSessionId) && String.isNotBlank(destInstanceUrl)
+      ) {
+        return ExternalOrgDmlService.createRecordsRemote(
+          destSessionId,
+          destInstanceUrl,
+          objectName,
+          processed
+        );
+      } else {
+        return ExternalOrgDmlService.insertRecordsCurrent(
+          objectName,
+          processed
+        );
+      }
     } catch (Exception e) {
-        System.debug('importRecordsWithResolution error: ' + e.getMessage());
-        throw new AuraHandledException(e.getMessage());
+      System.debug('importRecordsWithResolution error: ' + e.getMessage());
+      throw new AuraHandledException(e.getMessage());
     }
   }
 }

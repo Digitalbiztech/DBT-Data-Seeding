@@ -145,7 +145,7 @@ private class ExternalOrgServicesTest {
     } catch (Exception e) {
     }
     try {
-      ExternalOrgDescribeService.getObjectDependencies(null, null, null);
+      ExternalOrgDescribeService.getObjectDependencies(null, null, null, null, null);
     } catch (Exception e) {
     }
     Test.stopTest();
