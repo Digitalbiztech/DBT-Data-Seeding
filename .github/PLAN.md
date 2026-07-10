@@ -340,6 +340,14 @@ Apex
     - Runs the stored SOQL against Source, builds destination records without Id, remaps lookup references using old→new Id mappings built from earlier inserts, and inserts via Apex DML (current org).
     - Maintains per-object old→new Id maps for downstream remapping during the loop.
 
+- AppExchange Readiness and Security Hardening
+  - Conducted a full audit of LWC, Apex, and Metadata for Salesforce AppExchange compliance.
+  - Standardized on `AccessLevel.USER_MODE` and `Security.stripInaccessible` for all database interactions.
+  - Replaced legacy `WITH SECURITY_ENFORCED` string literals with Regex sanitization before SOQL execution to avoid exceptions.
+  - Cleared credentials (password, destination password) from reactive `@track` variables immediately after successful authentication to satisfy client-side security requirements.
+  - Expanded test suites (specifically around `ExternalOrgDescribeService`, `ExternalOrgAuthService`, and `ExternalOrgDmlService`) to successfully surpass the 80% code coverage threshold.
+  - Created a comprehensive `appexchange_readiness_report.md` artifact detailing blocker and critical severity issues to address before submission.
+
 ## Additional Apex Endpoints
 
 - Current org
