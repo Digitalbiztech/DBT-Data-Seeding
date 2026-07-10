@@ -56,10 +56,17 @@ public class ExternalOrgServicesComprehensiveTest {
     ExternalOrgQueryController.getAvailableObjects('s', 'url');
     ExternalOrgQueryController.getObjectDependencies(
       's',
-      'url',
-      'Contact',
-      1,
+      'u',
+      'Account',
+      2,
       new List<String>()
+    );
+    ExternalOrgQueryController.getObjectDependencies(
+      's',
+      'u',
+      'Account',
+      -1,
+      null
     );
     ExternalOrgQueryController.getRequiredFields('s', 'url', 'Contact');
     ExternalOrgQueryController.getCreateableFields(
@@ -172,6 +179,11 @@ public class ExternalOrgServicesComprehensiveTest {
       'Account',
       1,
       new List<String>()
+    );
+    ExternalOrgQueryController.getObjectDependenciesCurrent(
+      'Account',
+      -1,
+      null
     );
     ExternalOrgQueryController.getCreateableFieldsCurrent(
       new List<String>{ 'Account' }
