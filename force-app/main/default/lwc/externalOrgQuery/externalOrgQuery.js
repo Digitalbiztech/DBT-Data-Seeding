@@ -2044,19 +2044,21 @@ export default class ExternalOrgQuery extends LightningElement {
         }
         records.push(out);
       }
-      
+
       const sourceSess = this.isSourceCurrentOrg ? null : this.sessionId;
       const sourceUrl = this.isSourceCurrentOrg ? null : this.instanceUrl;
       const destSess = this.isDestinationCurrentOrg ? null : this.destSessionId;
-      const destUrl = this.isDestinationCurrentOrg ? null : this.destInstanceUrl;
+      const destUrl = this.isDestinationCurrentOrg
+        ? null
+        : this.destInstanceUrl;
 
       const results = await importRecordsWithResolution({
-          sourceSessionId: sourceSess,
-          sourceInstanceUrl: sourceUrl,
-          destSessionId: destSess,
-          destInstanceUrl: destUrl,
-          objectName,
-          records
+        sourceSessionId: sourceSess,
+        sourceInstanceUrl: sourceUrl,
+        destSessionId: destSess,
+        destInstanceUrl: destUrl,
+        objectName,
+        records
       });
 
       const report = {

@@ -245,25 +245,43 @@ public with sharing class DataSeedingService {
     String destSessionId,
     String destInstanceUrl
   ) {
-    if (records == null || records.isEmpty()) return records;
+    if (records == null || records.isEmpty())
+      return records;
 
     // Local ID Remap for this batch
     Map<String, Map<String, String>> idRemap = new Map<String, Map<String, String>>();
-    
+
     // 1. Discover References
     Map<String, String> refFields = new Map<String, String>();
     try {
-        if (String.isNotBlank(sourceSessionId) && String.isNotBlank(sourceInstanceUrl)) {
-             refFields = ExternalOrgDescribeService.getReferenceFields(sourceSessionId, sourceInstanceUrl, objectName);
-        } else if (String.isBlank(sourceSessionId)) { // Local source
-             refFields = getLocalReferenceFields(objectName);
-        }
+      if (
+        String.isNotBlank(sourceSessionId) &&
+        String.isNotBlank(sourceInstanceUrl)
+      ) {
+        refFields = ExternalOrgDescribeService.getReferenceFields(
+          sourceSessionId,
+          sourceInstanceUrl,
+          objectName
+        );
+      } else if (String.isBlank(sourceSessionId)) {
+        // Local source
+        refFields = getLocalReferenceFields(objectName);
+      }
     } catch (Exception e) {
-        System.debug('preprocessRecords: Failed to discover references: ' + e.getMessage());
+      System.debug(
+        'preprocessRecords: Failed to discover references: ' + e.getMessage()
+      );
     }
 
     if (objectName == 'User') {
-      resolveUserProfiles(records, idRemap, sourceSessionId, sourceInstanceUrl, destSessionId, destInstanceUrl);
+      resolveUserProfiles(
+        records,
+        idRemap,
+        sourceSessionId,
+        sourceInstanceUrl,
+        destSessionId,
+        destInstanceUrl
+      );
       if (!refFields.containsKey('ProfileId')) {
         refFields.put('ProfileId', 'Profile');
       }
@@ -277,8 +295,10 @@ public with sharing class DataSeedingService {
         if (val != null && val instanceof String) {
           String sVal = (String) val;
           String parentObj = refFields.get(field);
-          
-          Boolean hasMapping = idRemap.containsKey(parentObj) && idRemap.get(parentObj).containsKey(sVal);
+
+          Boolean hasMapping =
+            idRemap.containsKey(parentObj) &&
+            idRemap.get(parentObj).containsKey(sVal);
           if (!hasMapping) {
             if (!missingRefs.containsKey(parentObj)) {
               missingRefs.put(parentObj, new Set<String>());
@@ -291,7 +311,15 @@ public with sharing class DataSeedingService {
 
     // 3. Resolve missing
     for (String refObj : missingRefs.keySet()) {
-      resolveReferences(refObj, missingRefs.get(refObj), idRemap, sourceSessionId, sourceInstanceUrl, destSessionId, destInstanceUrl);
+      resolveReferences(
+        refObj,
+        missingRefs.get(refObj),
+        idRemap,
+        sourceSessionId,
+        sourceInstanceUrl,
+        destSessionId,
+        destInstanceUrl
+      );
     }
 
     // 4. Apply Updates
@@ -300,27 +328,34 @@ public with sharing class DataSeedingService {
       // Clone row to avoid mutating original list structure if needed, but we typically just map to new structure
       Map<String, Object> newRec = new Map<String, Object>();
       String oldId = (String) row.get('Id');
-      if (oldId != null) newRec.put('Id', oldId); // Keep ID for tracking
+      if (oldId != null)
+        newRec.put('Id', oldId); // Keep ID for tracking
 
       for (String field : row.keySet()) {
-         if (field == 'Id' || field == 'attributes') continue;
-         
-         if (objectName == 'User') {
-            String f = field.toLowerCase();
-            if (f == 'userroleid' || f.contains('userlicense') || f == 'managerid') continue;
-         }
+        if (field == 'Id' || field == 'attributes')
+          continue;
 
-         Object val = row.get(field);
-         if (refFields.containsKey(field) && val instanceof String) {
-            String parentObj = refFields.get(field);
-            if (idRemap.containsKey(parentObj)) {
-               Map<String, String> parentMap = idRemap.get(parentObj);
-               if (parentMap.containsKey((String)val)) {
-                  val = parentMap.get((String)val);
-               }
+        if (objectName == 'User') {
+          String f = field.toLowerCase();
+          if (
+            f == 'userroleid' ||
+            f.contains('userlicense') ||
+            f == 'managerid'
+          )
+            continue;
+        }
+
+        Object val = row.get(field);
+        if (refFields.containsKey(field) && val instanceof String) {
+          String parentObj = refFields.get(field);
+          if (idRemap.containsKey(parentObj)) {
+            Map<String, String> parentMap = idRemap.get(parentObj);
+            if (parentMap.containsKey((String) val)) {
+              val = parentMap.get((String) val);
             }
-         }
-         newRec.put(field, val);
+          }
+        }
+        newRec.put(field, val);
       }
       processed.add(newRec);
     }
@@ -329,24 +364,40 @@ public with sharing class DataSeedingService {
 
   @TestVisible
   private static void resolveReferences(
-    String refObj, 
+    String refObj,
     Set<String> missingSourceIds,
     Map<String, Map<String, String>> idRemap,
-    String sourceSessionId, String sourceInstanceUrl,
-    String destSessionId, String destInstanceUrl
+    String sourceSessionId,
+    String sourceInstanceUrl,
+    String destSessionId,
+    String destInstanceUrl
   ) {
-    if (missingSourceIds == null || missingSourceIds.isEmpty()) return;
+    if (missingSourceIds == null || missingSourceIds.isEmpty())
+      return;
 
     String matchField = (refObj == 'User') ? 'Email' : 'Name';
 
     // Query Source
     List<String> quotedIds = new List<String>();
-    for (String id : missingSourceIds) quotedIds.add('\'' + String.escapeSingleQuotes(id) + '\'');
+    for (String id : missingSourceIds)
+      quotedIds.add('\'' + String.escapeSingleQuotes(id) + '\'');
 
-    String sourceSoql = 'SELECT Id, ' + matchField + ' FROM ' + refObj + ' WHERE Id IN (' + String.join(quotedIds, ',') + ')';
-    ExternalOrgQueryService.QueryResultWrapper sourceRes = queryAny(sourceSessionId, sourceInstanceUrl, sourceSoql);
-    
-    if (sourceRes == null || sourceRes.rows == null || sourceRes.rows.isEmpty()) return;
+    String sourceSoql =
+      'SELECT Id, ' +
+      matchField +
+      ' FROM ' +
+      refObj +
+      ' WHERE Id IN (' +
+      String.join(quotedIds, ',') +
+      ')';
+    ExternalOrgQueryService.QueryResultWrapper sourceRes = queryAny(
+      sourceSessionId,
+      sourceInstanceUrl,
+      sourceSoql
+    );
+
+    if (sourceRes == null || sourceRes.rows == null || sourceRes.rows.isEmpty())
+      return;
 
     Map<String, String> valueToSourceId = new Map<String, String>();
     List<String> matchValues = new List<String>();
@@ -359,15 +410,31 @@ public with sharing class DataSeedingService {
         matchValues.add('\'' + String.escapeSingleQuotes(sVal) + '\'');
       }
     }
-    if (matchValues.isEmpty()) return;
+    if (matchValues.isEmpty())
+      return;
 
     // Query Dest
-    String destSoql = 'SELECT Id, ' + matchField + ' FROM ' + refObj + ' WHERE ' + matchField + ' IN (' + String.join(matchValues, ',') + ')';
-    ExternalOrgQueryService.QueryResultWrapper destRes = queryAny(destSessionId, destInstanceUrl, destSoql);
+    String destSoql =
+      'SELECT Id, ' +
+      matchField +
+      ' FROM ' +
+      refObj +
+      ' WHERE ' +
+      matchField +
+      ' IN (' +
+      String.join(matchValues, ',') +
+      ')';
+    ExternalOrgQueryService.QueryResultWrapper destRes = queryAny(
+      destSessionId,
+      destInstanceUrl,
+      destSoql
+    );
 
-    if (destRes == null || destRes.rows == null) return;
+    if (destRes == null || destRes.rows == null)
+      return;
 
-    if (!idRemap.containsKey(refObj)) idRemap.put(refObj, new Map<String, String>());
+    if (!idRemap.containsKey(refObj))
+      idRemap.put(refObj, new Map<String, String>());
     Map<String, String> objMap = idRemap.get(refObj);
 
     for (Map<String, Object> r : destRes.rows) {
@@ -377,7 +444,7 @@ public with sharing class DataSeedingService {
         String sVal = String.valueOf(val);
         String key = sVal.toLowerCase();
         if (valueToSourceId.containsKey(key)) {
-           objMap.put(valueToSourceId.get(key), destId);
+          objMap.put(valueToSourceId.get(key), destId);
         }
       }
     }
@@ -385,10 +452,12 @@ public with sharing class DataSeedingService {
 
   @TestVisible
   private static void resolveUserProfiles(
-      List<Map<String, Object>> rows,
-      Map<String, Map<String, String>> idRemap,
-      String sourceSessionId, String sourceInstanceUrl,
-      String destSessionId, String destInstanceUrl
+    List<Map<String, Object>> rows,
+    Map<String, Map<String, String>> idRemap,
+    String sourceSessionId,
+    String sourceInstanceUrl,
+    String destSessionId,
+    String destInstanceUrl
   ) {
     Set<String> sourceProfileIds = new Set<String>();
     for (Map<String, Object> row : rows) {
@@ -396,78 +465,107 @@ public with sharing class DataSeedingService {
         sourceProfileIds.add((String) row.get('ProfileId'));
       }
     }
-    if (sourceProfileIds.isEmpty()) return;
+    if (sourceProfileIds.isEmpty())
+      return;
 
     List<String> pidList = new List<String>();
-    for (String pid : sourceProfileIds) pidList.add('\'' + String.escapeSingleQuotes(pid) + '\'');
-    String sourceSoql = 'SELECT Id, Name FROM Profile WHERE Id IN (' + String.join(pidList, ',') + ')';
-    
-    ExternalOrgQueryService.QueryResultWrapper sourceRes = queryAny(sourceSessionId, sourceInstanceUrl, sourceSoql);
-    if (sourceRes == null || sourceRes.rows == null || sourceRes.rows.isEmpty()) return;
+    for (String pid : sourceProfileIds)
+      pidList.add('\'' + String.escapeSingleQuotes(pid) + '\'');
+    String sourceSoql =
+      'SELECT Id, Name FROM Profile WHERE Id IN (' +
+      String.join(pidList, ',') +
+      ')';
+
+    ExternalOrgQueryService.QueryResultWrapper sourceRes = queryAny(
+      sourceSessionId,
+      sourceInstanceUrl,
+      sourceSoql
+    );
+    if (sourceRes == null || sourceRes.rows == null || sourceRes.rows.isEmpty())
+      return;
 
     Map<String, String> nameToSourceId = new Map<String, String>();
     List<String> names = new List<String>();
     for (Map<String, Object> r : sourceRes.rows) {
-       String name = (String) r.get('Name');
-       String id = (String) r.get('Id');
-       if (name != null) {
-           nameToSourceId.put(name.toLowerCase(), id);
-           names.add('\'' + String.escapeSingleQuotes(name) + '\'');
-       }
+      String name = (String) r.get('Name');
+      String id = (String) r.get('Id');
+      if (name != null) {
+        nameToSourceId.put(name.toLowerCase(), id);
+        names.add('\'' + String.escapeSingleQuotes(name) + '\'');
+      }
     }
 
-    String destSoql = 'SELECT Id, Name FROM Profile WHERE Name IN (' + String.join(names, ',') + ')';
-    ExternalOrgQueryService.QueryResultWrapper destRes = queryAny(destSessionId, destInstanceUrl, destSoql);
+    String destSoql =
+      'SELECT Id, Name FROM Profile WHERE Name IN (' +
+      String.join(names, ',') +
+      ')';
+    ExternalOrgQueryService.QueryResultWrapper destRes = queryAny(
+      destSessionId,
+      destInstanceUrl,
+      destSoql
+    );
 
-    if (destRes == null || destRes.rows == null) return;
+    if (destRes == null || destRes.rows == null)
+      return;
 
-    if (!idRemap.containsKey('Profile')) idRemap.put('Profile', new Map<String, String>());
+    if (!idRemap.containsKey('Profile'))
+      idRemap.put('Profile', new Map<String, String>());
     Map<String, String> profileMap = idRemap.get('Profile');
 
     for (Map<String, Object> r : destRes.rows) {
-       String name = (String) r.get('Name');
-       String destId = (String) r.get('Id');
-       if (name != null) {
-          String key = name.toLowerCase();
-          if (nameToSourceId.containsKey(key)) {
-             profileMap.put(nameToSourceId.get(key), destId);
-          }
-       }
-    }
-  }
-
-  private static ExternalOrgQueryService.QueryResultWrapper queryAny(String sessionId, String instanceUrl, String soql) {
-    try {
-        if (String.isNotBlank(sessionId) && String.isNotBlank(instanceUrl)) {
-            return ExternalOrgQueryService.queryWithSession(sessionId, instanceUrl, soql);
-        } else {
-            return ExternalOrgQueryService.queryCurrent(soql);
+      String name = (String) r.get('Name');
+      String destId = (String) r.get('Id');
+      if (name != null) {
+        String key = name.toLowerCase();
+        if (nameToSourceId.containsKey(key)) {
+          profileMap.put(nameToSourceId.get(key), destId);
         }
-    } catch (Exception e) {
-        System.debug('queryAny Error: ' + e.getMessage());
-        return null;
+      }
     }
   }
 
-  private static Map<String, String> getLocalReferenceFields(String objectName) {
-      Map<String, String> refs = new Map<String, String>();
-      try {
-          Schema.SObjectType t = Schema.getGlobalDescribe().get(objectName);
-          if (t != null) {
-              Schema.DescribeSObjectResult d = t.getDescribe();
-              for (Schema.SObjectField f : d.fields.getMap().values()) {
-                  Schema.DescribeFieldResult fd = f.getDescribe();
-                  if (fd.getType() == Schema.DisplayType.REFERENCE) {
-                      List<Schema.SObjectType> rTo = fd.getReferenceTo();
-                      if (rTo != null && !rTo.isEmpty()) {
-                          refs.put(fd.getName(), rTo[0].getDescribe().getName());
-                      }
-                  }
-              }
-          }
-      } catch (Exception e) {
-          System.debug('Error getting local refs: ' + e.getMessage());
+  private static ExternalOrgQueryService.QueryResultWrapper queryAny(
+    String sessionId,
+    String instanceUrl,
+    String soql
+  ) {
+    try {
+      if (String.isNotBlank(sessionId) && String.isNotBlank(instanceUrl)) {
+        return ExternalOrgQueryService.queryWithSession(
+          sessionId,
+          instanceUrl,
+          soql
+        );
+      } else {
+        return ExternalOrgQueryService.queryCurrent(soql);
       }
-      return refs;
+    } catch (Exception e) {
+      System.debug('queryAny Error: ' + e.getMessage());
+      return null;
+    }
+  }
+
+  private static Map<String, String> getLocalReferenceFields(
+    String objectName
+  ) {
+    Map<String, String> refs = new Map<String, String>();
+    try {
+      Schema.SObjectType t = Schema.getGlobalDescribe().get(objectName);
+      if (t != null) {
+        Schema.DescribeSObjectResult d = t.getDescribe();
+        for (Schema.SObjectField f : d.fields.getMap().values()) {
+          Schema.DescribeFieldResult fd = f.getDescribe();
+          if (fd.getType() == Schema.DisplayType.REFERENCE) {
+            List<Schema.SObjectType> rTo = fd.getReferenceTo();
+            if (rTo != null && !rTo.isEmpty()) {
+              refs.put(fd.getName(), rTo[0].getDescribe().getName());
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      System.debug('Error getting local refs: ' + e.getMessage());
+    }
+    return refs;
   }
 }

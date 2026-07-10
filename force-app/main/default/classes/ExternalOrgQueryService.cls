@@ -189,12 +189,15 @@ public with sharing class ExternalOrgQueryService {
     try {
       String finalSoql = soql;
       if (!finalSoql.toUpperCase().contains('WITH SECURITY_ENFORCED')) {
-          Integer limitIdx = finalSoql.toUpperCase().lastIndexOf(' LIMIT ');
-          if (limitIdx != -1) {
-              finalSoql = finalSoql.substring(0, limitIdx) + ' WITH SECURITY_ENFORCED ' + finalSoql.substring(limitIdx);
-          } else {
-              finalSoql += ' WITH SECURITY_ENFORCED';
-          }
+        Integer limitIdx = finalSoql.toUpperCase().lastIndexOf(' LIMIT ');
+        if (limitIdx != -1) {
+          finalSoql =
+            finalSoql.substring(0, limitIdx) +
+            ' WITH SECURITY_ENFORCED ' +
+            finalSoql.substring(limitIdx);
+        } else {
+          finalSoql += ' WITH SECURITY_ENFORCED';
+        }
       }
       List<SObject> recs = Database.query(finalSoql);
       QueryResultWrapper wrap = new QueryResultWrapper();
@@ -207,15 +210,15 @@ public with sharing class ExternalOrgQueryService {
         Map<String, Object> row = new Map<String, Object>();
         if (fields != null && !fields.isEmpty()) {
           for (String f : fields) {
-            // Handle relationship fields (e.g. Account.Name) if necessary, 
-            // but for seeding we mostly care about flat fields. 
+            // Handle relationship fields (e.g. Account.Name) if necessary,
+            // but for seeding we mostly care about flat fields.
             // However, s.get() works for direct fields.
             try {
-               Object val = s.get(f);
-               row.put(f, val);
-               allCols.add(f);
+              Object val = s.get(f);
+              row.put(f, val);
+              allCols.add(f);
             } catch (Exception e) {
-               // Field might not be in query or invalid
+              // Field might not be in query or invalid
             }
           }
           // Ensure Id is always there
@@ -230,7 +233,7 @@ public with sharing class ExternalOrgQueryService {
         }
         rows.add(row);
       }
-      
+
       List<String> columns = new List<String>(allCols);
       Boolean hasId = false;
       for (String c : columns) {
