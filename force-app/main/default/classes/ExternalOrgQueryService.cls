@@ -187,19 +187,9 @@ public with sharing class ExternalOrgQueryService {
       throw ahe;
     }
     try {
-      String finalSoql = soql;
-      if (!finalSoql.toUpperCase().contains('WITH SECURITY_ENFORCED')) {
-        Integer limitIdx = finalSoql.toUpperCase().lastIndexOf(' LIMIT ');
-        if (limitIdx != -1) {
-          finalSoql =
-            finalSoql.substring(0, limitIdx) +
-            ' WITH SECURITY_ENFORCED ' +
-            finalSoql.substring(limitIdx);
-        } else {
-          finalSoql += ' WITH SECURITY_ENFORCED';
-        }
-      }
-      List<SObject> recs = Database.query(finalSoql);
+      // Strip WITH SECURITY_ENFORCED if the client passed it to avoid conflicts with USER_MODE
+      String cleanSoql = soql.replaceAll('(?i)WITH\\s+SECURITY_ENFORCED', '');
+      List<SObject> recs = Database.query(cleanSoql, AccessLevel.USER_MODE);
       QueryResultWrapper wrap = new QueryResultWrapper();
       wrap.totalSize = recs.size();
       wrap.done = true;

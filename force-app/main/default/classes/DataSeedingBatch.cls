@@ -638,7 +638,7 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
       matchField +
       ' IN (' +
       String.join(matchValues, ',') +
-      ') WITH SECURITY_ENFORCED';
+      ')';
 
     ExternalOrgQueryService.QueryResultWrapper destRes;
     try {

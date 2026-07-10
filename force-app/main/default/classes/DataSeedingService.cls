@@ -78,7 +78,7 @@ public with sharing class DataSeedingService {
         objectName +
         ' WHERE ' +
         whereClause +
-        ' WITH SECURITY_ENFORCED LIMIT 10000';
+        ' LIMIT 10000';
 
       List<Map<String, Object>> destRows = new List<Map<String, Object>>();
 
