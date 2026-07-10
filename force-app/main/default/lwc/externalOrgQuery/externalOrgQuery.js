@@ -195,7 +195,7 @@ export default class ExternalOrgQuery extends LightningElement {
   // Lightweight console logger
   debug = (...args) => {
     try {
-      console.log("[ExternalOrgQuery]", ...args);
+
     } catch (e) {
       /* no-op */
     }
@@ -346,7 +346,7 @@ export default class ExternalOrgQuery extends LightningElement {
     this.error = undefined;
     this.clearSourceSession();
     this.resetObjectSelection();
-    console.log("Username updated");
+
   };
   handlePasswordChange = (event) => {
     this.password = event.target.value;
@@ -354,7 +354,7 @@ export default class ExternalOrgQuery extends LightningElement {
     this.error = undefined;
     this.clearSourceSession();
     this.resetObjectSelection();
-    console.log("Password updated");
+
   };
   handleEnvironmentChange = (event) => {
     this.environment = event.detail.value;
@@ -780,12 +780,12 @@ export default class ExternalOrgQuery extends LightningElement {
             // Fetch detailed report with retries
             let reportJson = null;
             let attempts = 0;
-            console.log("Starting report fetch loop for Job:", this.batchJobId);
+
             while (!reportJson && attempts < 5) {
               try {
-                console.log(`Attempt ${attempts + 1} to fetch report...`);
+
                 reportJson = await getBatchReport({ jobId: this.batchJobId });
-                console.log(
+
                   `Attempt ${attempts + 1} result length:`,
                   reportJson ? reportJson.length : "null"
                 );
@@ -797,7 +797,7 @@ export default class ExternalOrgQuery extends LightningElement {
               }
               if (!reportJson) {
                 attempts++;
-                console.log("Report not found, waiting 1s...");
+
                 // Wait 1s before retry
                 // eslint-disable-next-line @lwc/lwc/no-async-operation
                 await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -806,17 +806,17 @@ export default class ExternalOrgQuery extends LightningElement {
 
             if (reportJson) {
               try {
-                console.log("Parsing report JSON...");
+
                 const rows = JSON.parse(reportJson);
-                console.log("Parsed rows count:", rows ? rows.length : 0);
+
                 this.batchReportRows = rows;
 
                 // Separate rows into success and error lists
                 this.successRows = rows.filter((r) => r.status === "Success");
                 this.errorRows = rows.filter((r) => r.status !== "Success");
 
-                console.log("Success rows:", this.successRows.length);
-                console.log("Error rows:", this.errorRows.length);
+
+
 
                 this.importStatus.successCount = this.successRows.length;
                 this.importStatus.errorCount = this.errorRows.length;
@@ -955,7 +955,7 @@ export default class ExternalOrgQuery extends LightningElement {
           ? node.targetObject
           : node.objectName || node.label
       );
-      console.log(
+
         JSON.stringify(
           { type: "PLAN_REORDER", order: this.exportOrder },
           null,
@@ -1070,7 +1070,7 @@ export default class ExternalOrgQuery extends LightningElement {
         (e) => `${e.fieldName} -> ${e.target} (${e.relationshipType})`
       );
     });
-    console.log("Dependency Graph (Edges):", JSON.stringify(graphLog, null, 2));
+
 
     // Calculate effective depth from graph (initially all selected)
     const computedDepth = this.calculateSelectedDepth(this.planRoot);
@@ -1503,6 +1503,8 @@ export default class ExternalOrgQuery extends LightningElement {
         // Store session details for future API calls
         this.sessionId = res.sessionId;
         this.instanceUrl = res.instanceUrl;
+        this.isSourceConnected = true;
+        this.password = ""; // Clear from memory
 
         // Automatically fetch available objects
         await this.fetchAvailableObjectsSource();
@@ -1548,6 +1550,8 @@ export default class ExternalOrgQuery extends LightningElement {
         this.destTestMessage = `Connection successful${instance}`;
         this.destSessionId = res.sessionId;
         this.destInstanceUrl = res.instanceUrl;
+        this.isDestinationConnected = true;
+        this.destPassword = ""; // Clear from memory
       } else {
         this.destTestMessage =
           res && res.message
@@ -1671,7 +1675,7 @@ export default class ExternalOrgQuery extends LightningElement {
       // Recalculate depth just in case (though graph didn't change, confirms consistency)
       this.effectiveDepth = this.calculateSelectedDepth(this.planRoot);
 
-      console.log(
+
         JSON.stringify(
           {
             type: "ID_COLLECTION_RESULT",
@@ -2573,7 +2577,7 @@ export default class ExternalOrgQuery extends LightningElement {
           continue;
         }
         const where = cleaned
-          .map((id) => `'${id.replace(/'/g, "'")}'`)
+          .map((id) => `'${id.replace(/'/g, "\\'")}'`)
           .join(",");
         const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
         await this.processQueryRows(objectName, soql, edges, queried, pending);
@@ -2822,7 +2826,7 @@ export default class ExternalOrgQuery extends LightningElement {
         for (const batch of this.chunkArray(ids, 200)) {
           const where = batch
             .filter(Boolean)
-            .map((id) => `'${id.replace(/'/g, "'")}'`)
+            .map((id) => `'${id.replace(/'/g, "\\'")}'`)
             .join(",");
           if (!where) continue;
           const soql = `SELECT ${selectClause} FROM ${objectName} WHERE Id IN (${where})`;
@@ -2850,7 +2854,7 @@ export default class ExternalOrgQuery extends LightningElement {
       };
       this.successReportLines = [];
       this.errorReportLines = [];
-      console.log(
+
         JSON.stringify({ type: "FINAL_EXPORT_SOQL", queries }, null, 2)
       );
     } catch (e) {
@@ -2869,7 +2873,7 @@ export default class ExternalOrgQuery extends LightningElement {
   handleCheckMatchingDestination = () => {
     // Placeholder for later implementation
 
-    console.log("Check Matching in Destination clicked");
+
   };
 
   get hasFinalExportData() {
@@ -2936,7 +2940,7 @@ export default class ExternalOrgQuery extends LightningElement {
       for (const batch of this.chunkArray(ids, 200)) {
         const where = batch
           .filter(Boolean)
-          .map((id) => `'${id.replace(/'/g, "'")}'`)
+          .map((id) => `'${id.replace(/'/g, "\\'")}'`)
           .join(",");
         if (!where) continue;
         const soql = `SELECT ${selectClause} FROM ${obj.objectName} WHERE Id IN (${where})`;
@@ -2950,7 +2954,7 @@ export default class ExternalOrgQuery extends LightningElement {
     }
     this.finalExportQueries = queries;
     this.isImportInitialized = true;
-    console.log(
+
       JSON.stringify({ type: "FINAL_EXPORT_SOQL_UPDATED", queries }, null, 2)
     );
   }
@@ -3039,7 +3043,7 @@ export default class ExternalOrgQuery extends LightningElement {
     this.isLoading = true;
 
     try {
-      console.log(
+
         "Checking dependencies for:",
         this.selectedObject,
         "with depth:",
@@ -3083,7 +3087,7 @@ export default class ExternalOrgQuery extends LightningElement {
       } catch (e) {
         /* no-op */
       }
-      console.log(
+
         JSON.stringify(
           {
             type: "EXPORT_PLAN",
@@ -3095,7 +3099,7 @@ export default class ExternalOrgQuery extends LightningElement {
         )
       );
 
-      console.log("Dependencies retrieved:", dependencies);
+
 
       if (autoApply && this.soqlConstraints) {
         this.applySoqlConstraints();

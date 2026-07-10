@@ -74,7 +74,7 @@ public with sharing class ExternalOrgDmlService {
       Database.DMLOptions dml = new Database.DMLOptions();
       dml.DuplicateRuleHeader.allowSave = true;
       dml.OptAllOrNone = false;
-      Database.SaveResult[] results = Database.insert(toInsert, dml);
+      Database.SaveResult[] results = Database.insert(toInsert, dml, AccessLevel.USER_MODE);
       String baseUrl = URL.getOrgDomainUrl().toExternalForm();
 
       for (Integer i = 0; i < results.size(); i++) {
@@ -171,12 +171,10 @@ public with sharing class ExternalOrgDmlService {
         return out;
       }
 
-      SObjectAccessDecision securityDecision = Security.stripInaccessible(AccessType.UPDATABLE, toUpdate);
-      List<SObject> safeToUpdate = securityDecision.getRecords();
       Database.DMLOptions dml = new Database.DMLOptions();
       dml.DuplicateRuleHeader.allowSave = true;
       dml.OptAllOrNone = false;
-      Database.SaveResult[] results = Database.update(safeToUpdate, dml);
+      Database.SaveResult[] results = Database.update(toUpdate, dml, AccessLevel.USER_MODE);
       String baseUrl = URL.getOrgDomainUrl().toExternalForm();
 
       for (Integer i = 0; i < results.size(); i++) {
@@ -409,6 +407,7 @@ public with sharing class ExternalOrgDmlService {
       try {
         sobj.put(key, val);
       } catch (Exception e) {
+        System.debug(LoggingLevel.WARN, 'safePut error on key ' + key + ': ' + e.getMessage());
       }
       return;
     }
@@ -419,6 +418,7 @@ public with sharing class ExternalOrgDmlService {
       try {
         sobj.put(key, val);
       } catch (Exception e) {
+        System.debug(LoggingLevel.WARN, 'safePut error on key ' + key + ': ' + e.getMessage());
       }
       return;
     }
@@ -451,7 +451,7 @@ public with sharing class ExternalOrgDmlService {
         sobj.put(field, val);
       }
     } catch (Exception e) {
-      // Ignore
+      System.debug(LoggingLevel.WARN, 'safePut error on key ' + key + ': ' + e.getMessage());
     }
   }
 }

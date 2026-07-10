@@ -439,7 +439,7 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
       String jsonBody = JSON.serialize(this.logs);
       cv.VersionData = Blob.valueOf(jsonBody);
       cv.IsMajorVersion = true;
-      insert cv;
+      insert as user cv;
       System.debug('Saved execution report: ' + cv.Id);
     } catch (Exception e) {
       System.debug('Failed to save batch report: ' + e.getMessage());
@@ -559,6 +559,11 @@ public with sharing class DataSeedingBatch implements Database.Batchable<Integer
   private void resolveReferences(String refObj, Set<String> missingSourceIds) {
     if (missingSourceIds == null || missingSourceIds.isEmpty())
       return;
+
+    // B6: Validate Object Name against SOQL injection
+    if (!Pattern.matches('^[a-zA-Z0-9_]+$', refObj)) {
+      throw new IllegalArgumentException('Invalid refObj: ' + refObj);
+    }
 
     String matchField = (refObj == 'User') ? 'Email' : 'Name';
 

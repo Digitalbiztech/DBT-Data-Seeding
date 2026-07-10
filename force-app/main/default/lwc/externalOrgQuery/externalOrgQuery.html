@@ -963,7 +963,7 @@
                                   {e.oldId}
                                 </template> </strong
                               >: {e.errorMessage}
-                              <span if:true={e.type}>({e.type})</span>
+                              <template if:true={e.type}><span>({e.type})</span></template>
                               <template if:true={e.rawError}>
                                 <lightning-button-icon
                                   icon-name="utility:info"

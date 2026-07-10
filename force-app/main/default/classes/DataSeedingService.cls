@@ -24,6 +24,16 @@ public with sharing class DataSeedingService {
         return results;
       }
 
+      // B6: Validate Object Name and Field Names against SOQL injection
+      if (!Pattern.matches('^[a-zA-Z0-9_]+$', objectName)) {
+        throw new IllegalArgumentException('Invalid object name: ' + objectName);
+      }
+      for (String f : matchFields) {
+        if (!Pattern.matches('^[a-zA-Z0-9_]+$', f)) {
+          throw new IllegalArgumentException('Invalid field name: ' + f);
+        }
+      }
+
       Map<String, Set<String>> fieldValues = new Map<String, Set<String>>();
       for (String f : matchFields) {
         fieldValues.put(f, new Set<String>());
@@ -82,7 +92,7 @@ public with sharing class DataSeedingService {
           destRows = qr.rows;
         }
       } else {
-        for (SObject s : Database.query(soql)) {
+        for (SObject s : Database.query(soql, AccessLevel.USER_MODE)) {
           Map<String, Object> r = new Map<String, Object>();
           r.put('Id', s.Id);
           for (String f : matchFields) {
@@ -174,6 +184,7 @@ public with sharing class DataSeedingService {
         CreatedDate
       FROM AsyncApexJob
       WHERE Id = :jobId
+      WITH USER_MODE
     ];
 
     if (job.Status == 'Completed') {
@@ -191,6 +202,7 @@ public with sharing class DataSeedingService {
           AND CreatedDate >= :job.CreatedDate
           AND Id != :jobId
           AND Status IN ('Queued', 'Processing', 'Preparing', 'Holding')
+        WITH USER_MODE
         ORDER BY CreatedDate DESC
         LIMIT 1
       ];
@@ -218,6 +230,7 @@ public with sharing class DataSeedingService {
         SELECT VersionData
         FROM ContentVersion
         WHERE Title LIKE :titlePrefix + '%' AND IsLatest = TRUE
+        WITH USER_MODE
         ORDER BY CreatedDate DESC
         LIMIT 1
       ];
