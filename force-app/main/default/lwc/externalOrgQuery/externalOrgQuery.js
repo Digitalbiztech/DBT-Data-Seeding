@@ -13,8 +13,8 @@ import insertRecordsCurrent from "@salesforce/apex/ExternalOrgQueryController.in
 export default class ExternalOrgQuery extends LightningElement {
   // UI state for external org connection and query execution
   // Source org (kept as existing fields for compatibility)
-  @track username = "ayannbhunia@gmail.com.pdo3"; // for testing, will remove later
-  @track password = "Ayan1234!XXgl8XmigYY5bxOVuENBlVJMc"; // for testing, will remove later
+  @track username = "";
+  @track password = "";
   @track environment = "Production";
   @track testMessage;
   @track sessionId;
@@ -29,7 +29,23 @@ export default class ExternalOrgQuery extends LightningElement {
   @track destInstanceUrl;
   @track soql = "";
   // Removed table results; we no longer build datatable
-  @track error;
+  @track _error;
+
+  get error() {
+    return this._error;
+  }
+  set error(val) {
+    let formattedVal = val;
+    if (formattedVal && typeof formattedVal === 'string' && formattedVal.includes("Unauthorized endpoint")) {
+      const match = formattedVal.match(/endpoint = (https:\/\/[^\/]+)/);
+      if (match && match[1]) {
+        const url = match[1];
+        const siteName = "DBT_External_Org_" + url.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
+        formattedVal = `Missing Remote Site Setting. Please go to Setup -> Security -> Remote Site Settings. Create a new one with Name: "${siteName}" and URL: "${url}"`;
+      }
+    }
+    this._error = formattedVal;
+  }
   @track availableObjects = [];
   @track selectedObject;
   @track dependencyTree;

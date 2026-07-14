@@ -1,0 +1,51 @@
+Upload Documentation
+Upload the required documentation for your submission. The files must be in .csv, .doc, .jpg, .pdf, .png, or .zip format and 35 MB or smaller.
+Solution Architecture and Usage
+Share documentation that shows detailed information flow, authentication, encryption on data transfer, and data touchpoints. To help orient us to your solution, also provide basic usage instructions.
+Title
+File
+Enter a title...
+This field is required.
+or drag file
+Sample API Callouts
+In your callout documentation, provide HTTP requests and responses for all header values.
+Title
+File
+Enter a title...
+or drag file
+Security Scanner Reports
+If your solution has scannable code, for example, if it’s a Salesforce managed package, provide a clean Source Scanner report from the Salesforce Partner Security Portal. For scannable code with external web applications, APIs, mobile applications, or any other component of a composite solution, provide a clean scanner report from a Dynamic Application Security Testing (DAST) scanner. Use OWASP ZAP, Burp Suite, or any other industry-standard DAST scanner. See Test Your Entire Solution for a list of scanners that we require or recommend.
+If your scanner report includes issues that appear to be false positives, also provide documentation that explains why each flagged false positive doesn’t pose a security risk.
+
+If your solution doesn't contain scannable code, upload a document that states why scanner reports aren't required.
+Title
+File
+Enter a title...
+or drag file
+False Positives Documentation
+If your scanner reports flag code that appears to pose a security risk, but does not, provide documentation that explains why each flagged issue isn't a security risk. Learn how to document your responses to false positives.
+
+I confirm that there are no false positives in my security scanner reports.
+Title
+File
+Enter a title...
+or drag file
+To save time, use our false positives template. Download the template as a Microsoft Word or PDF file.
+Salesforce Code Analyzer
+For solutions that contain scannable code, provide a clean Salesforce Code Analyzer report, or let us know that you didn't use Code Analyzer and explain why.
+Title
+File
+Enter a title...
+or drag file
+
+I didn't use Salesforce Code Analyzer
+Agentforce Questionnaire
+If your solution contains Agentforce elements, submit the Agentforce Submission Intake Questionnaire. Agentforce elements include actions, subagents, agents, and large language models (LLMs) to use with agents in Agent Studio. The questionnaire is required for all Agentforce solutions.
+Download the questionnaire.
+After you complete the questionnaire, upload it to Other Documents.
+Other Documents
+Share any other documentation that we need to assess the security of your solution.
+Title
+File
+Enter a title...
+or drag file

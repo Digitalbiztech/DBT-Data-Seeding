@@ -1,0 +1,80 @@
+Add Technical Details
+Tell us about your solution. If a section isn't relevant, click the toggle to disable it.
+
+Describe Your Solution
+Provide a detailed technical description of your solution and related components.
+Optionally, include links to documentation that you want to share with our reviewers. You can also attach documents on the Upload Documentation page.
+
+The solution is a native Salesforce application built to facilitate data seeding between two Salesforce orgs (a "Source" org and a "Destination" org) while automatically maintaining referential integrity (Lookups and Master-Detail relationships). 
+
+The architecture utilizes a Service-Oriented Architecture (SOA) with a Facade pattern:
+- Frontend: Built entirely using Lightning Web Components (LWC) that provide the user interface for configuration and execution monitoring.
+- Backend: Apex is used to handle orchestration. A Facade layer (ExternalOrgQueryController) exposes methods to LWC.
+- Dependency Discovery: Uses recursive REST/SOAP callouts (ExternalOrgDescribeService) to build a dependency tree, ensuring parent records are seeded before their children.
+- Data Transfer: Executes a batch job (DataSeedingBatch) that uses ExternalOrgQueryService to fetch records via remote SOQL, maintains an in-memory map of Source IDs to Destination IDs (idRemap), and inserts the remapped records into the Destination org using the Salesforce Composite API via ExternalOrgDmlService.
+
+If your solution includes or requires a web app or service, list the frameworks and languages that it uses.
+
+Enabled
+The solution does not include or require an external web app or service. It is a 100% native Salesforce application built with Apex and Lightning Web Components (LWC) utilizing HTML, JavaScript, and CSS.
+
+If your solution uses any platforms other than Salesforce Platform, list them and describe how they're used. Examples: Heroku, Marketing Cloud.
+
+Enabled
+The solution does not use any platforms other than the Salesforce Platform. It connects directly from the installed Salesforce org to other Salesforce orgs (Source/Destination) using standard Salesforce APIs.
+
+If your solution integrates with technology outside the Salesforce Platform, provide details.
+
+Enabled
+The solution does not integrate with any technology outside the Salesforce Platform. It strictly communicates between Salesforce environments using Salesforce standard APIs (REST, SOAP, Composite API).
+
+Is your solution an API-only app?
+
+Disabled
+
+If your solution contains Salesforce Platform technology, such as Lightning Components and Apex, provide details.
+
+Enabled
+Yes, the solution is built entirely on Salesforce Platform technology:
+- Lightning Web Components (LWC): Provides the user interface for authenticating, selecting objects, configuring seeding jobs, and monitoring execution. 
+- Apex Classes: Implements a Service-Oriented Architecture (SOA). Key components include:
+  - ExternalOrgQueryController: Facade for LWC @AuraEnabled methods.
+  - ExternalOrgDescribeService: Handles remote schema and dependency discovery.
+  - ExternalOrgQueryService: Executes remote SOQL against the Source org.
+  - ExternalOrgDmlService: Pushes records to the Destination org using the Composite API.
+  - DataSeedingBatch: A Batch Apex class that manages the iterative data transfer and ID remapping in bulk.
+  - ExternalOrgAuthService: Manages SOAP-based authentication with remote orgs.
+
+If your solution stores any Salesforce OAuth tokens or other access tokens, describe how the tokens are stored.
+
+Enabled
+Currently, the application authenticates to the source and destination orgs by accepting a username and password (with security token if required) inputted by the user in the LWC UI. These credentials are used for a real-time SOAP login call to establish a session. The resulting session ID is used strictly in-memory during the execution of the data seeding batch process and is NEVER persistently stored in the database. 
+
+If your solution stores any Salesforce data outside the Salesforce Platform, list all types of stored data, and describe where and how the data is stored.
+
+Enabled
+No Salesforce data is stored outside the Salesforce Platform. All data is transferred directly from one Salesforce org to another and processed entirely in-memory within the Salesforce execution context.
+
+Does your solution use Japanese text in any of its components, such as on-screen labels?
+
+Disabled
+
+Mobile App
+Is your solution available as a mobile app?
+
+Disabled (or toggle to Disabled, as it is a desktop app)
+
+What mobile devices or operating systems does your app support?
+
+Enabled
+Not applicable. The solution is not supported as a standalone mobile app. It is designed to be accessed via the standard Salesforce web interface on a desktop device.
+
+If your solution includes a browser extension, provide a public or direct download link, such as a link to the extension's Chrome Web Store or Apple App Store page.
+
+Enabled
+Not applicable. The solution does not include a browser extension.
+
+If your solution includes a desktop or client app, provide details.
+
+Enabled
+Not applicable. The solution does not include a desktop or client app.
