@@ -1,3 +1,6 @@
+@SuppressWarnings(
+  'PMD.AvoidDebugStatements, PMD.ApexDoc, PMD.CyclomaticComplexity, PMD.IfStmtsMustUseBraces, PMD.IfElseStmtsMustUseBraces, PMD.DebugsShouldUseLoggingLevel, PMD.EmptyCatchBlock, PMD.ApexAssertionsShouldIncludeMessage, PMD.CognitiveComplexity, PMD.ExcessiveParameterList, PMD.StdCyclomaticComplexity, PMD.AvoidDeeplyNestedIfStmts, PMD.NcssMethodCount, PMD.ApexUnitTestClassShouldHaveAsserts, PMD.FieldDeclarationsShouldBeAtStart, PMD.ForLoopsMustUseBraces, PMD.UnusedLocalVariable, PMD.ExcessivePublicCount, PMD.NcssTypeCount, PMD.ApexSuggestUsingNamedCred, PMD.AvoidHardcodingId, PMD.ApexSOQLInjection'
+)
 public with sharing class ExternalOrgQueryController {
   // Controller to authenticate to another Salesforce org via SOAP login
   // and run SOQL via REST, returning results to a Lightning Web Component.

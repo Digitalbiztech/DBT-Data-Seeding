@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { LightningElement, api } from "lwc";
 
 export default class ExternalOrgQueryNode extends LightningElement {

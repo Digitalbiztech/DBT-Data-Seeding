@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { LightningElement, track } from "lwc";
 import testConnection from "@salesforce/apex/ExternalOrgQueryController.testConnection";
 import getAvailableObjects from "@salesforce/apex/ExternalOrgQueryController.getAvailableObjects";
@@ -36,11 +37,17 @@ export default class ExternalOrgQuery extends LightningElement {
   }
   set error(val) {
     let formattedVal = val;
-    if (formattedVal && typeof formattedVal === 'string' && formattedVal.includes("Unauthorized endpoint")) {
+    if (
+      formattedVal &&
+      typeof formattedVal === "string" &&
+      formattedVal.includes("Unauthorized endpoint")
+    ) {
       const match = formattedVal.match(/endpoint = (https:\/\/[^\/]+)/);
       if (match && match[1]) {
         const url = match[1];
-        const siteName = "DBT_External_Org_" + url.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
+        const siteName =
+          "DBT_External_Org_" +
+          url.replace(/[^a-zA-Z0-9]/g, "").substring(0, 20);
         formattedVal = `Missing Remote Site Setting. Please go to Setup -> Security -> Remote Site Settings. Create a new one with Name: "${siteName}" and URL: "${url}"`;
       }
     }

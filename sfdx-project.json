@@ -10,7 +10,8 @@
     },
     {
       "versionName": "ver 0.1",
-      "versionNumber": "0.1.0.NEXT",
+      "versionNumber": "0.2.0.NEXT",
+      "ancestorVersion": "0.1.0",
       "path": "force-app",
       "default": false,
       "package": "Data_Seeding",
@@ -33,6 +34,7 @@
     "Data_Seeding_Unlocked_1@0.1.0-3": "04tKb0000011NViIAM",
     "Data_Seeding@0.1.0-2": "04tKb0000011NVsIAM",
     "Data_Seeding@0.1.0-3": "04tKb000000tBmkIAE",
-    "Data_Seeding@0.1.0-4": "04tKb000000tBmpIAE"
+    "Data_Seeding@0.1.0-4": "04tKb000000tBmpIAE",
+    "Data_Seeding@0.2.0-1": "04tKb000000tBmzIAE"
   }
 }
